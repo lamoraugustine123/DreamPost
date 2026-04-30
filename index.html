@@ -74,76 +74,240 @@
     </div>
 
     <div class="app-shell">
-        <header class="topbar">
-            <div class="brand">
-                <div class="logo">✨</div>
-                <div>
-                    <h1>DreamPost</h1>
-                    <p>Turn your daydreams into proud public posts.</p>
+        <header class="modern-header">
+            <div class="header-left">
+                <div class="logo-container">
+                    <div class="logo">DreamPost</div>
+                </div>
+                <div class="quick-actions">
+                    <button class="quick-action-btn facebook" title="Facebook">
+                        <span>f</span>
+                    </button>
+                    <button class="quick-action-btn instagram" title="Instagram">
+                        <span>ig</span>
+                    </button>
+                    <button class="quick-action-btn twitter" title="Twitter">
+                        <span>t</span>
+                    </button>
+                    <button class="quick-action-btn whatsapp" title="WhatsApp">
+                        <span>w</span>
+                    </button>
+                    <button class="quick-action-btn telegram" title="Telegram">
+                        <span>tg</span>
+                    </button>
                 </div>
             </div>
-            <div class="top-search">
-                <input type="search" id="globalSearch" placeholder="Search dreams...">
+            
+            <div class="header-center">
+                <div class="search-container">
+                    <div class="search-icon">search</div>
+                    <input type="search" id="globalSearch" placeholder="Search dreams, users, tags..." class="search-input">
+                </div>
             </div>
-                        <button id="logoutBtn" class="ghost-btn">Logout</button>
-        </header>
-
-        <main class="main-grid">
-            <aside class="sidebar">
-                <div class="profile-card">
-                    <div class="avatar" id="userAvatar">DP</div>
-                    <div>
-                        <h2 id="userName">Guest</h2>
-                        <p id="userEmail">Please sign in</p>
+            
+            <div class="header-right">
+                <button class="header-action-btn" title="Messages">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span class="notification-badge">5</span>
+                </button>
+                <button class="header-action-btn" title="Notifications">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                    </svg>
+                    <span class="notification-badge">3</span>
+                </button>
+                <div class="user-menu">
+                    <button class="user-avatar-btn" id="userAvatarBtn">
+                        <div class="user-avatar" id="headerUserAvatar">DP</div>
+                    </button>
+                    <div class="user-dropdown" id="userDropdown">
+                        <div class="dropdown-header">
+                            <div class="dropdown-avatar" id="dropdownAvatar">DP</div>
+                            <div class="dropdown-user-info">
+                                <div class="dropdown-username" id="dropdownUsername">User</div>
+                                <div class="dropdown-email" id="dropdownEmail">user@example.com</div>
+                            </div>
+                        </div>
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item" data-action="profile">
+                            <span class="dropdown-icon">person</span>
+                            Profile
+                        </button>
+                        <button class="dropdown-item" data-action="settings">
+                            <span class="dropdown-icon">settings</span>
+                            Settings
+                        </button>
+                        <button class="dropdown-item" data-action="analytics">
+                            <span class="dropdown-icon">analytics</span>
+                            Analytics
+                        </button>
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item logout-item" data-action="logout">
+                            <span class="dropdown-icon">logout</span>
+                            Logout
+                        </button>
                     </div>
                 </div>
-                <nav class="nav-links">
-                    <button data-view="feed" class="nav-btn active">🌟 Feed</button>
-                    <button data-view="create" class="nav-btn">💭 Create Dream</button>
-                    <button data-view="profile" class="nav-btn">👤 Profile</button>
-                    <button data-view="settings" class="nav-btn">⚙️ Settings</button>
-                </nav>
-                <div class="stats-panel">
-                    <div><strong id="dreamCount">0</strong><span>Dreams</span></div>
-                    <div><strong id="streakCount">0</strong><span>Streak</span></div>
+                <button id="mobileMenuBtn" class="mobile-menu-btn">
+                    <span class="menu-icon">menu</span>
+                </button>
+            </div>
+        </header>
+
+        <main class="modern-main">
+            <!-- Left Sidebar -->
+            <aside class="modern-sidebar left-sidebar">
+                <div class="sidebar-section">
+                    <div class="user-profile-card">
+                        <div class="user-avatar-large" id="sidebarUserAvatar">DP</div>
+                        <div class="user-info">
+                            <div class="user-name" id="sidebarUserName">Guest</div>
+                            <div class="user-handle">@username</div>
+                        </div>
+                        <button class="edit-profile-btn" data-action="profile">Edit Profile</button>
+                    </div>
+                </div>
+                
+                <div class="sidebar-section">
+                    <nav class="sidebar-nav">
+                        <button class="sidebar-nav-item active" data-view="feed">
+                            <span class="nav-icon">home</span>
+                            <span>Home</span>
+                        </button>
+                        <button class="sidebar-nav-item" data-view="create">
+                            <span class="nav-icon">add_box</span>
+                            <span>Create Dream</span>
+                        </button>
+                        <button class="sidebar-nav-item" data-view="explore">
+                            <span class="nav-icon">explore</span>
+                            <span>Explore</span>
+                        </button>
+                        <button class="sidebar-nav-item" data-action="profile">
+                            <span class="nav-icon">person</span>
+                            <span>Profile</span>
+                        </button>
+                        <button class="sidebar-nav-item" data-action="settings">
+                            <span class="nav-icon">settings</span>
+                            <span>Settings</span>
+                        </button>
+                    </nav>
+                </div>
+                
+                <div class="sidebar-section">
+                    <div class="stats-card">
+                        <div class="stat-item">
+                            <div class="stat-number" id="sidebarDreamCount">0</div>
+                            <div class="stat-label">Dreams</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number" id="sidebarLikesCount">0</div>
+                            <div class="stat-label">Likes</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number" id="sidebarStreakCount">0</div>
+                            <div class="stat-label">Streak</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="sidebar-section">
+                    <div class="trending-card">
+                        <h3 class="trending-title">Trending Dreams</h3>
+                        <div class="trending-list">
+                            <div class="trending-item">
+                                <span class="trending-tag">#imagination</span>
+                                <span class="trending-count">1.2k</span>
+                            </div>
+                            <div class="trending-item">
+                                <span class="trending-tag">#fantasy</span>
+                                <span class="trending-count">892</span>
+                            </div>
+                            <div class="trending-item">
+                                <span class="trending-tag">#adventure</span>
+                                <span class="trending-count">756</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </aside>
 
-            <section class="content">
-                <div id="feedView" class="card content-panel hidden">
-                    <div class="section-header">
-                        <div>
-                            <h2>Public Feed</h2>
-                            <p>Discover dreams from other creators.</p>
+            <!-- Main Content Area -->
+            <section class="modern-content">
+                <!-- Modern Feed View -->
+                <div id="feedView" class="modern-feed hidden">
+                    <!-- Create Post Card -->
+                    <div class="create-post-card">
+                        <div class="create-post-header">
+                            <div class="user-avatar" id="feedUserAvatar">DP</div>
+                            <div class="create-post-input" contenteditable="true" placeholder="What's on your mind? Share your dream..."></div>
+                        </div>
+                        <div class="create-post-actions">
+                            <button class="post-action-btn">
+                                <span class="action-icon">image</span>
+                                Photo
+                            </button>
+                            <button class="post-action-btn">
+                                <span class="action-icon">tag</span>
+                                Tag
+                            </button>
+                            <button class="post-action-btn">
+                                <span class="action-icon">mood</span>
+                                Mood
+                            </button>
+                            <button class="post-action-btn primary" id="quickPostBtn">
+                                Post
+                            </button>
                         </div>
                     </div>
-                    <div class="feed-controls">
-                        <input id="feedSearch" type="search" placeholder="Search stories by keyword...">
-                        <select id="feedTypeFilter">
-                            <option value="All">All types</option>
-                            <option value="dream">💭 Dreams</option>
-                            <option value="fantasy">✨ Fantasy</option>
-                            <option value="scenario">🎭 Scenarios</option>
-                            <option value="story">📖 Stories</option>
-                        </select>
-                        <select id="feedMoodFilter">
-                            <option value="All">All moods</option>
-                            <option value="Joyful">😊 Joyful</option>
-                            <option value="Determined">💪 Determined</option>
-                            <option value="Peaceful">🕊️ Peaceful</option>
-                            <option value="Inspired">🌟 Inspired</option>
-                            <option value="Confident">🎯 Confident</option>
-                            <option value="Magical">🔮 Magical</option>
-                            <option value="Mysterious">🌙 Mysterious</option>
-                            <option value="Adventurous">🗺️ Adventurous</option>
-                            <option value="Romantic">💕 Romantic</option>
-                            <option value="Sci-Fi">🚀 Sci-Fi</option>
-                            <option value="Fantasy">🐉 Fantasy</option>
-                            <option value="Horror">👻 Horror</option>
-                        </select>
+
+                    <!-- Feed Stories -->
+                    <div class="stories-section">
+                        <h3 class="section-title">Stories</h3>
+                        <div class="stories-container">
+                            <div class="story-item">
+                                <div class="story-avatar">+</div>
+                                <span class="story-text">Add Story</span>
+                            </div>
+                            <div class="story-item">
+                                <div class="story-avatar" style="background: linear-gradient(45deg, #ff6b6b, #ffd93d);">JD</div>
+                                <span class="story-text">John</span>
+                            </div>
+                            <div class="story-item">
+                                <div class="story-avatar" style="background: linear-gradient(45deg, #6bcf7f, #2e7d32);">SM</div>
+                                <span class="story-text">Sarah</span>
+                            </div>
+                            <div class="story-item">
+                                <div class="story-avatar" style="background: linear-gradient(45deg, #4a90e2, #7b68ee);">MK</div>
+                                <span class="story-text">Mike</span>
+                            </div>
+                        </div>
                     </div>
-                    <div id="feedList" class="feed-list"></div>
-                    <button id="loadMoreBtn" class="primary-btn" style="display: none;">Load More Dreams</button>
+
+                    <!-- Feed Filters -->
+                    <div class="feed-filters">
+                        <div class="filter-tabs">
+                            <button class="filter-tab active" data-filter="all">All</button>
+                            <button class="filter-tab" data-filter="following">Following</button>
+                            <button class="filter-tab" data-filter="trending">Trending</button>
+                            <button class="filter-tab" data-filter="new">New</button>
+                        </div>
+                        <div class="filter-controls">
+                            <select id="feedTypeFilter" class="filter-select">
+                                <option value="All">All Types</option>
+                                <option value="dream">Dreams</option>
+                                <option value="fantasy">Fantasy</option>
+                                <option value="scenario">Scenarios</option>
+                                <option value="story">Stories</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Posts Feed -->
+                    <div id="feedList" class="modern-feed-list"></div>
+                    <button id="loadMoreBtn" class="load-more-btn" style="display: none;">Load More Dreams</button>
                 </div>
 
                 <div id="createView" class="card content-panel hidden">
@@ -686,62 +850,117 @@
             </section>
 
             <aside class="right-sidebar">
-                <div class="card">
-                    <h3>🔥 Trending Now</h3>
-                    <div id="trendingList" class="trending-list">No trending stories yet.</div>
+                <div class="sidebar-section">
+                    <div class="suggestions-card">
+                        <h3 class="suggestions-title">Suggestions For You</h3>
+                        <div class="suggestions-list">
+                            <div class="suggestion-item">
+                                <div class="suggestion-avatar" style="background: var(--gradient-facebook);">AS</div>
+                                <div class="suggestion-info">
+                                    <div class="suggestion-name">Alice Smith</div>
+                                    <div class="suggestion-handle">@alice_dreams</div>
+                                </div>
+                                <button class="suggestion-btn">Follow</button>
+                            </div>
+                            <div class="suggestion-item">
+                                <div class="suggestion-avatar" style="background: var(--gradient-instagram);">BJ</div>
+                                <div class="suggestion-info">
+                                    <div class="suggestion-name">Bob Johnson</div>
+                                    <div class="suggestion-handle">@bob_stories</div>
+                                </div>
+                                <button class="suggestion-btn">Follow</button>
+                            </div>
+                            <div class="suggestion-item">
+                                <div class="suggestion-avatar" style="background: var(--gradient-twitter);">CW</div>
+                                <div class="suggestion-info">
+                                    <div class="suggestion-name">Carol Wilson</div>
+                                    <div class="suggestion-handle">@carol_tweets</div>
+                                </div>
+                                <button class="suggestion-btn">Follow</button>
+                            </div>
+                        </div>
+                        <button class="show-more-btn">Show More</button>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3>🎯 Recommended for You</h3>
-                    <div id="recommendedList" class="recommended-list">Loading recommendations...</div>
-                </div>
-                <div class="card">
-                    <h3>� Your Activity</h3>
-                    <div class="activity-stats">
-                        <div class="stat-item">
-                            <span class="stat-icon">❤️</span>
-                            <div>
-                                <strong id="activityLikes">0</strong>
-                                <span>Likes received</span>
+
+                <div class="sidebar-section">
+                    <div class="trending-card">
+                        <h3 class="trending-title">Trending Topics</h3>
+                        <div class="trending-list">
+                            <div class="trending-item">
+                                <span class="trending-tag">#DreamBig</span>
+                                <span class="trending-count">2.3k</span>
                             </div>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-icon">💬</span>
-                            <div>
-                                <strong id="activityComments">0</strong>
-                                <span>Comments</span>
+                            <div class="trending-item">
+                                <span class="trending-tag">#FantasyWorld</span>
+                                <span class="trending-count">1.8k</span>
                             </div>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-icon">🔖</span>
-                            <div>
-                                <strong id="activityBookmarks">0</strong>
-                                <span>Bookmarks</span>
+                            <div class="trending-item">
+                                <span class="trending-tag">#StoryTime</span>
+                                <span class="trending-count">1.2k</span>
                             </div>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-icon">👁️</span>
-                            <div>
-                                <strong id="activityViews">0</strong>
-                                <span>Profile views</span>
+                            <div class="trending-item">
+                                <span class="trending-tag">#CreativeMind</span>
+                                <span class="trending-count">956</span>
+                            </div>
+                            <div class="trending-item">
+                                <span class="trending-tag">#Imagination</span>
+                                <span class="trending-count">742</span>
                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="card">
-                    <h3>🌈 Popular Tags</h3>
-                    <div id="popularTags" class="tag-cloud">
-                        <span class="tag">magical</span>
-                        <span class="tag">adventure</span>
-                        <span class="tag">romance</span>
-                        <span class="tag">mystery</span>
-                        <span class="tag">sci-fi</span>
+
+                <div class="sidebar-section">
+                    <div class="activity-card">
+                        <h3 class="activity-title">Recent Activity</h3>
+                        <div class="activity-list">
+                            <div class="activity-item">
+                                <div class="activity-avatar" style="background: var(--gradient-whatsapp);">JD</div>
+                                <div class="activity-content">
+                                    <div class="activity-text">John liked your dream</div>
+                                    <div class="activity-time">2 min ago</div>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-avatar" style="background: var(--gradient-telegram);">SM</div>
+                                <div class="activity-content">
+                                    <div class="activity-text">Sarah started following you</div>
+                                    <div class="activity-time">15 min ago</div>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-avatar" style="background: var(--gradient-instagram);">MK</div>
+                                <div class="activity-content">
+                                    <div class="activity-text">Mike commented on your post</div>
+                                    <div class="activity-time">1 hour ago</div>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-avatar" style="background: var(--gradient-twitter);">EW</div>
+                                <div class="activity-content">
+                                    <div class="activity-text">Emma shared your story</div>
+                                    <div class="activity-time">3 hours ago</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="card">
-                    <h3>🏆 Top Creators</h3>
-                    <div id="topCreators" class="creator-list">Loading top creators...</div>
+
+                <div class="sidebar-section">
+                    <div class="quick-links-card">
+                        <h3 class="quick-links-title">Quick Links</h3>
+                        <div class="quick-links">
+                            <a href="#" class="quick-link">Help Center</a>
+                            <a href="#" class="quick-link">Privacy Policy</a>
+                            <a href="#" class="quick-link">Terms of Service</a>
+                            <a href="#" class="quick-link">Contact Support</a>
+                            <a href="#" class="quick-link">Community Guidelines</a>
+                        </div>
+                    </div>
                 </div>
-            </aside>
+
+                            </aside>
         </main>
     </div>
 
@@ -1231,6 +1450,31 @@
                         <button class="ghost-btn">🗑️ Clear Temporary Files</button>
                         <button class="ghost-btn">📦 Export Data</button>
                     </div>
+
+    <!-- Mobile Navigation Menu -->
+    <div id="mobileMenu" class="mobile-menu">
+        <div class="mobile-menu-overlay"></div>
+        <div class="mobile-menu-content">
+            <div class="mobile-menu-header">
+                <h3>Menu</h3>
+                <button id="closeMobileMenu" class="mobile-menu-close">××</button>
+            </div>
+            <div class="mobile-menu-items">
+                <button class="mobile-menu-item" data-action="profile">
+                    <span class="mobile-menu-icon">·</span>
+                    <span class="mobile-menu-text">Profile</span>
+                </button>
+                <button class="mobile-menu-item" data-action="settings">
+                    <span class="mobile-menu-icon">·</span>
+                    <span class="mobile-menu-text">Settings</span>
+                </button>
+                <button class="mobile-menu-item" data-action="logout">
+                    <span class="mobile-menu-icon">·</span>
+                    <span class="mobile-menu-text">Logout</span>
+                </button>
+            </div>
+        </div>
+    </div>
 
     <div id="toast" class="toast hidden"></div>
 

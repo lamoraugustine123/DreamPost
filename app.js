@@ -1,10 +1,35 @@
 const API_URL = '/api';
 
 const storage = {
-    sessionKey: 'dreampostSession',
-    getSession() { return localStorage.getItem(this.sessionKey); },
-    setSession(email) { localStorage.setItem(this.sessionKey, email); },
-    clearSession() { localStorage.removeItem(this.sessionKey); }
+    sessionKey: 'dreampost_session',
+    
+    getSession() {
+        try {
+            return JSON.parse(localStorage.getItem(this.sessionKey));
+        } catch {
+            return null;
+        }
+    },
+    
+    setSession(session) {
+        localStorage.setItem(this.sessionKey, JSON.stringify(session));
+    },
+    
+    clearSession() {
+        localStorage.removeItem(this.sessionKey);
+    },
+    
+    getUser() {
+        return this.getSession();
+    },
+    
+    setUser(user) {
+        this.setSession(user);
+    },
+    
+    clearUser() {
+        this.clearSession();
+    }
 };
 
 const elements = {
@@ -143,6 +168,10 @@ const elements = {
     removeImageBtn: document.getElementById('removeImageBtn'),
     toast: document.getElementById('toast'),
     editProfileBtn: document.getElementById('editProfileBtn'),
+    // Mobile menu elements
+    mobileMenuBtn: document.getElementById('mobileMenuBtn'),
+    mobileMenu: document.getElementById('mobileMenu'),
+    closeMobileMenu: document.getElementById('closeMobileMenu'),
     profileDisplay: document.getElementById('profileDisplay'),
     profileEdit: document.getElementById('profileEdit'),
     saveProfileBtn: document.getElementById('saveProfileBtn'),
@@ -196,21 +225,88 @@ async function getUser(email) {
 }
 
 async function loginUser(email, password) {
-    return apiFetch('/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-    });
+    try {
+        // Get users from data.json file
+        const response = await fetch('./data.json');
+        const data = await response.json();
+        
+        const user = data.users.find(u => u.email === email && u.password === password);
+        
+        if (user) {
+            // Store session in localStorage
+            localStorage.setItem('dreampost_session', JSON.stringify(user));
+            return { success: true, user };
+        } else {
+            return { success: false, error: 'Invalid email or password' };
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        return { success: false, error: 'Login failed' };
+    }
 }
 
 async function signupUser(name, email, password) {
-    return apiFetch('/signup', {
-        method: 'POST',
-        body: JSON.stringify({ name, email, password }),
-    });
+    try {
+        // Get users from data.json file
+        const response = await fetch('./data.json');
+        const data = await response.json();
+        
+        // Check if user already exists
+        if (data.users.find(u => u.email === email)) {
+            return { success: false, error: 'User already exists' };
+        }
+        
+        // For demo purposes, just store in localStorage session
+        const newUser = {
+            id: 'user-' + Date.now(),
+            name: name,
+            email: email,
+            password: password,
+            bio: '',
+            createdAt: new Date().toISOString()
+        };
+        
+        localStorage.setItem('dreampost_session', JSON.stringify(newUser));
+        
+        return { success: true, user: newUser };
+    } catch (error) {
+        console.error('Signup error:', error);
+        return { success: false, error: 'Signup failed' };
+    }
 }
 
 async function getPosts() {
-    return apiFetch('/posts');
+    try {
+        // Fetch posts from data.json file
+        const response = await fetch('./data.json');
+        const data = await response.json();
+        
+        // Convert posts array to have proper date objects
+        const posts = data.posts.map(post => ({
+            ...post,
+            createdAt: new Date(post.createdAt),
+            likes: post.likes || 0,
+            likedBy: post.likedBy || [],
+            comments: post.comments || []
+        }));
+        
+        return posts;
+    } catch (error) {
+        console.error('Error getting posts:', error);
+        return [];
+    }
+}
+
+async function savePosts(posts) {
+    try {
+        // For demo purposes, store in localStorage
+        // In a real app, this would make an API call to save to the database
+        localStorage.setItem('dreampost_posts', JSON.stringify(posts));
+        return posts;
+    } catch (error) {
+        console.error('Error saving posts:', error);
+        throw error;
+    }
 }
 
 async function createPost(post) {
@@ -307,43 +403,164 @@ function attachEventListeners() {
     elements.showSignup.addEventListener('click', () => switchAuthTab('signup'));
     elements.loginBtn.addEventListener('click', handleLogin);
     elements.signupBtn.addEventListener('click', handleSignup);
-    elements.logoutBtn.addEventListener('click', handleLogout);
-    elements.postDreamBtn.addEventListener('click', createDream);
-    elements.dreamImage.addEventListener('change', handleImageUpload);
-    elements.removeImageBtn.addEventListener('click', removeSelectedImage);
-    elements.feedSearch.addEventListener('input', handleFeedSearch);
-    elements.feedMoodFilter.addEventListener('change', handleMoodFilter);
-    elements.feedTypeFilter.addEventListener('change', handleTypeFilter);
-    elements.enterAppBtn.addEventListener('click', () => elements.splashScreen.classList.add('hidden'));
-    elements.editProfileBtn.addEventListener('click', openProfileEdit);
-    elements.saveProfileBtn.addEventListener('click', saveProfileChanges);
-    elements.cancelProfileBtn.addEventListener('click', closeProfileEdit);
-    elements.coverImageInput.addEventListener('change', handleCoverUpload);
-    elements.profileImageInput.addEventListener('change', handleProfilePictureUpload);
+    if (elements.logoutBtn) {
+        elements.logoutBtn.addEventListener('click', handleLogout);
+    }
+    if (elements.postDreamBtn) {
+        elements.postDreamBtn.addEventListener('click', createDream);
+    }
+    if (elements.dreamImage) {
+        elements.dreamImage.addEventListener('change', handleImageUpload);
+    }
+    if (elements.removeImageBtn) {
+        elements.removeImageBtn.addEventListener('click', removeSelectedImage);
+    }
+    if (elements.feedSearch) {
+        elements.feedSearch.addEventListener('input', handleFeedSearch);
+    }
+    if (elements.feedMoodFilter) {
+        elements.feedMoodFilter.addEventListener('change', handleMoodFilter);
+    }
+    if (elements.feedTypeFilter) {
+        elements.feedTypeFilter.addEventListener('change', handleTypeFilter);
+    }
+    if (elements.enterAppBtn) {
+        elements.enterAppBtn.addEventListener('click', () => elements.splashScreen.classList.add('hidden'));
+    }
+    if (elements.editProfileBtn) {
+        elements.editProfileBtn.addEventListener('click', openProfileEdit);
+    }
+    if (elements.saveProfileBtn) {
+        elements.saveProfileBtn.addEventListener('click', saveProfileChanges);
+    }
+    if (elements.cancelProfileBtn) {
+        elements.cancelProfileBtn.addEventListener('click', closeProfileEdit);
+    }
+    if (elements.coverImageInput) {
+        elements.coverImageInput.addEventListener('change', handleCoverUpload);
+    }
+    if (elements.profileImageInput) {
+        elements.profileImageInput.addEventListener('change', handleProfilePictureUpload);
+    }
     
     // Password strength indicator
-    elements.signupPassword.addEventListener('input', (e) => {
-        const password = e.target.value;
-        if (password.length > 0) {
-            elements.passwordStrength.classList.remove('hidden');
-            checkPasswordStrength(password);
-        } else {
-            elements.passwordStrength.classList.add('hidden');
-        }
-    });
+    if (elements.signupPassword) {
+        elements.signupPassword.addEventListener('input', (e) => {
+            const password = e.target.value;
+            if (password.length > 0) {
+                elements.passwordStrength.classList.remove('hidden');
+                checkPasswordStrength(password);
+            } else {
+                elements.passwordStrength.classList.add('hidden');
+            }
+        });
+    }
     
-    // Form validation
-    elements.signupConfirmPassword.addEventListener('input', validateSignupForm);
-    elements.signupName.addEventListener('input', validateSignupForm);
-    elements.signupEmail.addEventListener('input', validateSignupForm);
-    elements.signupPassword.addEventListener('input', () => {
-        validateSignupForm();
-        updateSignupPasswordStrength();
-    });
+    if (elements.signupName) {
+        elements.signupName.addEventListener('input', validateSignupForm);
+    }
+    if (elements.signupEmail) {
+        elements.signupEmail.addEventListener('input', validateSignupForm);
+    }
+    if (elements.signupPassword) {
+        elements.signupPassword.addEventListener('input', () => {
+            validateSignupForm();
+            updateSignupPasswordStrength();
+        });
+    }
     
     document.querySelectorAll('.nav-btn').forEach(button => {
         button.addEventListener('click', () => changeView(button.dataset.view));
     });
+    
+    // Mobile menu event listeners
+    if (elements.mobileMenuBtn) {
+        elements.mobileMenuBtn.addEventListener('click', openMobileMenu);
+    }
+    
+    if (elements.closeMobileMenu) {
+        elements.closeMobileMenu.addEventListener('click', closeMobileMenu);
+    }
+    
+    // Mobile menu overlay click to close
+    const mobileMenuOverlay = document.querySelector('.mobile-menu-overlay');
+    if (mobileMenuOverlay) {
+        mobileMenuOverlay.addEventListener('click', closeMobileMenu);
+    }
+    
+    // Mobile menu item clicks
+    document.querySelectorAll('.mobile-menu-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            const action = e.currentTarget.dataset.action;
+            handleMobileMenuAction(action);
+        });
+    });
+    
+    // User dropdown toggle
+    const userAvatarBtn = document.getElementById('userAvatarBtn');
+    const userDropdown = document.getElementById('userDropdown');
+    
+    if (userAvatarBtn && userDropdown) {
+        userAvatarBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            userDropdown.classList.toggle('active');
+        });
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!userDropdown.contains(e.target) && !userAvatarBtn.contains(e.target)) {
+                userDropdown.classList.remove('active');
+            }
+        });
+    }
+    
+    // User dropdown actions
+    document.querySelectorAll('.dropdown-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            const action = e.currentTarget.dataset.action;
+            handleUserDropdownAction(action);
+            userDropdown.classList.remove('active');
+        });
+    });
+    
+    // Sidebar navigation items
+    document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const view = item.dataset.view;
+            const action = item.dataset.action;
+            
+            if (view) {
+                changeView(view);
+            } else if (action) {
+                handleSidebarAction(action);
+            }
+        });
+    });
+    
+    // Filter tabs
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            const filter = tab.dataset.filter;
+            applyFeedFilter(filter);
+        });
+    });
+    
+    // Quick post functionality
+    const quickPostBtn = document.getElementById('quickPostBtn');
+    const createPostInput = document.querySelector('.create-post-input');
+    
+    if (quickPostBtn && createPostInput) {
+        quickPostBtn.addEventListener('click', () => {
+            const content = createPostInput.textContent.trim();
+            if (content) {
+                handleQuickPost(content);
+                createPostInput.textContent = '';
+            }
+        });
+    }
 }
 
 async function init() {
@@ -478,6 +695,317 @@ function handleLogout() {
     renderApp();
 }
 
+// Mobile Menu Functions
+function openMobileMenu() {
+    if (elements.mobileMenu) {
+        elements.mobileMenu.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function closeMobileMenu() {
+    if (elements.mobileMenu) {
+        elements.mobileMenu.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+}
+
+function handleMobileMenuAction(action) {
+    closeMobileMenu();
+    
+    switch (action) {
+        case 'profile':
+            openModal('profileModal');
+            break;
+        case 'settings':
+            openModal('settingsModal');
+            break;
+        case 'logout':
+            if (confirm('Are you sure you want to logout?')) {
+                handleLogout();
+            }
+            break;
+        default:
+            console.log('Unknown mobile menu action:', action);
+    }
+}
+
+// User dropdown actions
+function handleUserDropdownAction(action) {
+    switch (action) {
+        case 'profile':
+            openModal('profileModal');
+            break;
+        case 'settings':
+            openModal('settingsModal');
+            break;
+        case 'analytics':
+            showToast('Analytics coming soon!');
+            break;
+        case 'logout':
+            if (confirm('Are you sure you want to logout?')) {
+                handleLogout();
+            }
+            break;
+        default:
+            console.log('Unknown dropdown action:', action);
+    }
+}
+
+// Sidebar actions
+function handleSidebarAction(action) {
+    switch (action) {
+        case 'profile':
+            openModal('profileModal');
+            break;
+        case 'settings':
+            openModal('settingsModal');
+            break;
+        default:
+            console.log('Unknown sidebar action:', action);
+    }
+}
+
+// Feed filtering
+function applyFeedFilter(filter) {
+    console.log('Applying filter:', filter);
+    // Implementation for feed filtering
+    renderFeed();
+}
+
+// Quick post functionality
+async function handleQuickPost(content) {
+    if (!currentUser) {
+        showToast('Please log in to post');
+        return;
+    }
+    
+    const post = {
+        id: Date.now().toString(),
+        author: currentUser.name,
+        authorEmail: currentUser.email,
+        content: content,
+        timestamp: new Date().toISOString(),
+        likes: 0,
+        comments: [],
+        type: 'dream',
+        mood: 'Joyful'
+    };
+    
+    const posts = await getPosts();
+    posts.unshift(post);
+    await savePosts(posts);
+    
+    showToast('Dream posted successfully!');
+    renderFeed();
+}
+
+// Update user interface elements
+function updateUserInterface() {
+    if (!currentUser) return;
+    
+    // Sanitize user data
+    const userName = sanitizeText(currentUser.name);
+    const userEmail = sanitizeText(currentUser.email);
+    const initials = userName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    const userHandle = '@' + userName.toLowerCase().replace(/\s+/g, '');
+    
+    // Update header user avatar
+    const headerUserAvatar = document.getElementById('headerUserAvatar');
+    const sidebarUserAvatar = document.getElementById('sidebarUserAvatar');
+    const feedUserAvatar = document.getElementById('feedUserAvatar');
+    
+    if (headerUserAvatar) headerUserAvatar.textContent = initials;
+    if (sidebarUserAvatar) sidebarUserAvatar.textContent = initials;
+    if (feedUserAvatar) feedUserAvatar.textContent = initials;
+    
+    // Update user names and handles
+    const sidebarUserName = document.getElementById('sidebarUserName');
+    const dropdownUsername = document.getElementById('dropdownUsername');
+    const dropdownEmail = document.getElementById('dropdownEmail');
+    
+    if (sidebarUserName) sidebarUserName.textContent = userName;
+    if (dropdownUsername) dropdownUsername.textContent = userName;
+    if (dropdownEmail) dropdownEmail.textContent = userEmail;
+    
+    // Update user handle
+    const userHandleElements = document.querySelectorAll('.user-handle');
+    userHandleElements.forEach(element => {
+        element.textContent = userHandle;
+    });
+}
+
+// Sanitize text to prevent duplication
+function sanitizeText(text) {
+    if (!text) return '';
+    return text.toString().trim().replace(/\s+/g, ' ');
+}
+
+// Hybrid Social Media Post Rendering
+function renderModernPost(post) {
+    const authorName = sanitizeText(post.authorName || post.author || 'Anonymous');
+    const initials = authorName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    const timeAgo = getTimeAgo(new Date(post.createdAt || post.timestamp));
+    const postTitle = sanitizeText(post.title || '');
+    const postContent = sanitizeText(post.text || post.content || '');
+    const mood = post.mood || 'Dream';
+    const contentType = post.contentType || 'dream';
+    
+    // Check if current user liked this post
+    let isLiked = false;
+    if (currentUser) {
+        if (post.likedBy && Array.isArray(post.likedBy)) {
+            isLiked = post.likedBy.includes(currentUser.email);
+        } else {
+            isLiked = post.liked || false;
+        }
+    }
+    
+    // Generate platform-specific styling
+    const getPlatformStyle = () => {
+        if (contentType === 'dream') return 'facebook';
+        if (contentType === 'fantasy') return 'instagram';
+        if (contentType === 'scenario') return 'twitter';
+        return 'telegram';
+    };
+    
+    const platform = getPlatformStyle();
+    const platformColors = {
+        facebook: 'var(--facebook)',
+        instagram: 'var(--instagram)',
+        twitter: 'var(--twitter)',
+        telegram: 'var(--telegram)'
+    };
+    
+    return `
+        <div class="hybrid-post-card ${platform}" data-post-id="${post.id}">
+            <div class="post-header">
+                <div class="post-author">
+                    <div class="post-author-avatar" style="background: ${platformColors[platform]};">
+                        ${initials}
+                    </div>
+                    <div class="post-author-info">
+                        <div class="post-author-name">${authorName}</div>
+                        <div class="post-author-meta">
+                            <span class="post-time">${timeAgo}</span>
+                            <span class="post-platform">${platform}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="post-options">
+                    <button class="post-options-btn">···</button>
+                </div>
+            </div>
+            
+            <div class="post-content">
+                ${postTitle ? `<div class="post-title">${postTitle}</div>` : ''}
+                <div class="post-text">${postContent}</div>
+                ${post.image ? `
+                    <div class="post-image-container">
+                        <img src="${post.image}" alt="Post image" loading="lazy">
+                    </div>
+                ` : ''}
+                
+                <div class="post-tags">
+                    <span class="post-tag mood">${mood}</span>
+                    <span class="post-tag type">${contentType}</span>
+                </div>
+            </div>
+            
+            <div class="post-actions">
+                <div class="post-action-group">
+                    <button class="post-action-btn like-btn ${isLiked ? 'liked' : ''}" onclick="toggleLike('${post.id}')">
+                        <svg class="action-icon" viewBox="0 0 24 24" fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                        </svg>
+                        <span class="action-text">Like</span>
+                        <span class="action-count">${post.likes || 0}</span>
+                    </button>
+                    
+                    <button class="post-action-btn comment-btn">
+                        <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        <span class="action-text">Comment</span>
+                        <span class="action-count">${post.comments?.length || 0}</span>
+                    </button>
+                    
+                    <button class="post-action-btn share-btn">
+                        <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="18" cy="5" r="3"></circle>
+                            <circle cx="6" cy="12" r="3"></circle>
+                            <circle cx="18" cy="19" r="3"></circle>
+                            <line x1="8.59" y1="13.41" x2="15.42" y2="6.58"></line>
+                            <line x1="15.41" y1="17.59" x2="8.59" y2="10.41"></line>
+                        </svg>
+                        <span class="action-text">Share</span>
+                    </button>
+                    
+                    <button class="post-action-btn bookmark-btn">
+                        <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// Time ago helper function
+function getTimeAgo(date) {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    
+    let interval = seconds / 31536000;
+    if (interval > 1) return Math.floor(interval) + "y";
+    
+    interval = seconds / 2592000;
+    if (interval > 1) return Math.floor(interval) + "mo";
+    
+    interval = seconds / 86400;
+    if (interval > 1) return Math.floor(interval) + "d";
+    
+    interval = seconds / 3600;
+    if (interval > 1) return Math.floor(interval) + "h";
+    
+    interval = seconds / 60;
+    if (interval > 1) return Math.floor(interval) + "m";
+    
+    return "just now";
+}
+
+// Toggle like functionality
+async function toggleLike(postId) {
+    if (!currentUser) {
+        showToast('Please log in to like posts');
+        return;
+    }
+    
+    const posts = await getPosts();
+    const post = posts.find(p => p.id === postId);
+    
+    if (post) {
+        // Handle both old and new post structures
+        if (post.likedBy && Array.isArray(post.likedBy)) {
+            // New structure with likedBy array
+            const userLiked = post.likedBy.includes(currentUser.email);
+            if (userLiked) {
+                post.likedBy = post.likedBy.filter(email => email !== currentUser.email);
+            } else {
+                post.likedBy.push(currentUser.email);
+            }
+            post.likes = post.likedBy.length;
+        } else {
+            // Old structure with liked boolean
+            post.liked = !post.liked;
+            post.likes = post.liked ? (post.likes || 0) + 1 : Math.max(0, (post.likes || 0) - 1);
+        }
+        
+        await savePosts(posts);
+        renderFeed();
+    }
+}
+
 async function changeView(view) {
     console.log('changeView called with:', view);
     console.log('Current user:', !!currentUser);
@@ -495,10 +1023,28 @@ async function changeView(view) {
         return;
     }
     
+    // Hide all views first
+    document.getElementById('feedView').classList.add('hidden');
+    document.getElementById('createView').classList.add('hidden');
+    
     // Handle feed and create normally
     console.log('Changing to view:', view);
     currentView = view;
-    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
+    
+    // Update navigation active states
+    document.querySelectorAll('.sidebar-nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
+    
+    // Show the appropriate view
+    if (view === 'feed') {
+        document.getElementById('feedView').classList.remove('hidden');
+        await renderFeed();
+    } else if (view === 'create') {
+        document.getElementById('createView').classList.remove('hidden');
+    } else if (view === 'explore') {
+        document.getElementById('feedView').classList.remove('hidden');
+        await renderFeed();
+    }
+    
     await renderApp();
 }
 
@@ -511,7 +1057,9 @@ async function renderApp() {
     if (!isLoggedIn) {
         // Show full-screen authentication and hide main app completely
         elements.authView.classList.remove('hidden');
-        elements.logoutBtn.style.display = 'none';
+        if (elements.logoutBtn) {
+            elements.logoutBtn.style.display = 'none';
+        }
         
         // Hide the entire app shell when not authenticated
         document.querySelector('.app-shell').style.display = 'none';
@@ -522,17 +1070,23 @@ async function renderApp() {
         elements.userEmail.textContent = 'Please sign in';
         elements.userAvatar.textContent = 'DP';
         
-        // Focus on authentication
-        setTimeout(() => elements.loginEmail.focus(), 100);
         return;
     }
     
     // User is logged in - hide auth and show app
     elements.authView.classList.add('hidden');
-    elements.logoutBtn.style.display = 'inline-flex';
+    if (elements.logoutBtn) {
+        elements.logoutBtn.style.display = 'inline-flex';
+    }
     
     // Show the entire app shell when authenticated
     document.querySelector('.app-shell').style.display = 'block';
+    
+    // Show modern feed view by default
+    const feedView = document.getElementById('feedView');
+    if (feedView) {
+        feedView.classList.remove('hidden');
+    }
     document.querySelector('.fab').style.display = 'flex';
     
     // Update user information
@@ -580,7 +1134,6 @@ async function renderStats() {
     elements.profileLikes.textContent = likes;
     elements.streakCount.textContent = computeStreak(posts);
     updateDashboardStats(posts, likes);
-    updateNavStats();
 }
 
 function updateDashboardStats(posts, likes) {
@@ -614,17 +1167,58 @@ function computeBadges(posts, likes) {
     return badges;
 }
 
+// Add flag to prevent duplicate rendering
+let isRenderingFeed = false;
+
+// Debounce function to prevent rapid repeated calls
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Create debounced version of renderFeed for frequent calls
+const debouncedRenderFeed = debounce(renderFeed, 300);
+
 async function renderFeed() {
-    const search = feedFilterQuery.toLowerCase();
-    const mood = feedFilterMood;
-    const type = feedFilterType;
-    const posts = (await getPosts())
-        .filter(post => post.public)
-        .filter(post => type === 'All' || post.contentType === type)
-        .filter(post => mood === 'All' || post.mood === mood)
-        .filter(post => !search || post.title.toLowerCase().includes(search) || post.text.toLowerCase().includes(search) || post.authorName.toLowerCase().includes(search) || (post.setting && post.setting.toLowerCase().includes(search)))
-        .sort((a, b) => b.createdAt - a.createdAt);
-    elements.feedList.innerHTML = posts.length ? posts.map(createPostCard).join('') : '<p>No matching stories yet. Try a different filter.</p>';
+    // Prevent duplicate rendering
+    if (isRenderingFeed) return;
+    isRenderingFeed = true;
+    
+    try {
+        const search = feedFilterQuery.toLowerCase();
+        const mood = feedFilterMood;
+        const type = feedFilterType;
+        const posts = (await getPosts())
+            .filter(post => post.public)
+            .filter(post => type === 'All' || post.contentType === type)
+            .filter(post => mood === 'All' || post.mood === mood)
+            .filter(post => !search || post.title.toLowerCase().includes(search) || post.text.toLowerCase().includes(search) || post.authorName.toLowerCase().includes(search) || (post.setting && post.setting.toLowerCase().includes(search)))
+            .sort((a, b) => b.createdAt - a.createdAt);
+        
+        // Clear feed list first to prevent duplication
+        if (elements.feedList) {
+            elements.feedList.innerHTML = '';
+            
+            // Use modern post rendering
+            if (posts.length > 0) {
+                elements.feedList.innerHTML = posts.map(post => renderModernPost(post)).join('');
+            } else {
+                elements.feedList.innerHTML = '<p>No matching stories yet. Try a different filter.</p>';
+            }
+        }
+        
+        // Update user interface
+        updateUserInterface();
+    } finally {
+        isRenderingFeed = false;
+    }
 }
 
 async function renderProfile() {
@@ -779,19 +1373,64 @@ async function createDream() {
 function handleImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
+    
+    // Validate file type and size
+    if (!file.type.startsWith('image/')) {
+        showToast('Please select an image file');
+        return;
+    }
+    
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        showToast('Image size should be less than 5MB');
+        return;
+    }
+    
     const reader = new FileReader();
     reader.onload = () => {
         selectedImageData = reader.result;
-        elements.imagePreview.src = selectedImageData;
-        elements.imagePreviewWrapper.classList.remove('hidden');
+        
+        // Create preview with proper container
+        const previewContainer = document.createElement('div');
+        previewContainer.className = 'create-post-image-preview';
+        previewContainer.innerHTML = `
+            <img src="${selectedImageData}" alt="Preview">
+            <button class="remove-image-btn" onclick="removeSelectedImage()">×</button>
+        `;
+        
+        // Update preview display
+        const existingPreview = document.querySelector('.create-post-image-preview');
+        if (existingPreview) {
+            existingPreview.replaceWith(previewContainer);
+        } else {
+            // Find where to insert the preview (after create post input)
+            const createPostInput = document.querySelector('.create-post-input');
+            if (createPostInput && createPostInput.parentNode) {
+                createPostInput.parentNode.insertBefore(previewContainer, createPostInput.nextSibling);
+            }
+        }
     };
     reader.readAsDataURL(file);
 }
 
 function removeSelectedImage() {
     selectedImageData = null;
-    elements.dreamImage.value = '';
-    elements.imagePreviewWrapper.classList.add('hidden');
+    
+    // Clear file input
+    const dreamImageInput = document.getElementById('dreamImage');
+    if (dreamImageInput) {
+        dreamImageInput.value = '';
+    }
+    
+    // Remove preview container
+    const previewContainer = document.querySelector('.create-post-image-preview');
+    if (previewContainer) {
+        previewContainer.remove();
+    }
+    
+    // Also handle legacy preview wrapper if it exists
+    if (elements.imagePreviewWrapper) {
+        elements.imagePreviewWrapper.classList.add('hidden');
+    }
 }
 
 async function toggleLike(postId) {
@@ -920,7 +1559,7 @@ function showToast(message) {
 
 function handleFeedSearch(event) {
     feedFilterQuery = event.target.value;
-    renderFeed();
+    debouncedRenderFeed();
 }
 
 // Settings functionality
@@ -2018,12 +2657,12 @@ function initNavigationKeyboardShortcuts() {
 
 function handleMoodFilter(event) {
     feedFilterMood = event.target.value;
-    renderFeed();
+    debouncedRenderFeed();
 }
 
 function handleTypeFilter(event) {
     feedFilterType = event.target.value;
-    renderFeed();
+    debouncedRenderFeed();
 }
 
 function openProfileEdit() {
