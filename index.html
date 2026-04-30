@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DreamPost - Share Your Dreams</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="app.css">
+</head>
+<body>
+    <div id="splashScreen" class="splash-screen">
+        <div class="splash-card">
+            <div class="splash-logo">DreamPost</div>
+            <p>Write your daydream. Share your pride. Inspire the world.</p>
+            <div class="splash-features">
+                <div class="feature-item">
+                    <span class="feature-icon">✨</span>
+                    <span>Capture your dreams</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">🌟</span>
+                    <span>Share with the world</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">💭</span>
+                    <span>Connect with dreamers</span>
+                </div>
+            </div>
+            <button id="enterAppBtn" class="primary-btn">Enter DreamPost</button>
+        </div>
+    </div>
+
+    <!-- Full-screen authentication view - outside app shell -->
+    <div id="authView" class="auth-fullscreen">
+        <div class="auth-card">
+            <div class="auth-logo">
+                <h1>DreamPost</h1>
+                <p>Share your dreams with the world</p>
+            </div>
+            <div class="auth-tabs">
+                <button id="showLogin" class="tab active">Login</button>
+                <button id="showSignup" class="tab">Sign Up</button>
+            </div>
+            <div class="auth-panel" id="loginPanel">
+                <h2>Welcome back</h2>
+                <label>Email<input id="loginEmail" type="email" placeholder="you@example.com"></label>
+                <label>Password<input id="loginPassword" type="password" placeholder="••••••••"></label>
+                <button id="loginBtn" class="primary-btn">Log in</button>
+                <p class="small-text">No account yet? Sign up above.</p>
+            </div>
+            <div class="auth-panel hidden" id="signupPanel">
+                <h2>Create account</h2>
+                <label>Name<input id="signupName" type="text" placeholder="Your name" maxlength="50"></label>
+                <label>Email<input id="signupEmail" type="email" placeholder="you@example.com"></label>
+                <label>Password
+                    <input id="signupPassword" type="password" placeholder="••••••••" maxlength="128">
+                    <div id="passwordStrength" class="password-strength hidden">
+                        <div class="strength-bar">
+                            <div id="strengthBar" class="strength-fill"></div>
+                        </div>
+                        <span id="strengthText">Password strength</span>
+                    </div>
+                </label>
+                <label>Confirm Password
+                    <input id="signupConfirmPassword" type="password" placeholder="••••••••" maxlength="128">
+                </label>
+                <div id="signupError" class="error-message hidden"></div>
+                <button id="signupBtn" class="primary-btn">Sign up</button>
+                <p class="small-text">Already have an account? Log in above.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="logo">✨</div>
+                <div>
+                    <h1>DreamPost</h1>
+                    <p>Turn your daydreams into proud public posts.</p>
+                </div>
+            </div>
+            <div class="top-search">
+                <input type="search" id="globalSearch" placeholder="Search dreams...">
+            </div>
+                        <button id="logoutBtn" class="ghost-btn">Logout</button>
+        </header>
+
+        <main class="main-grid">
+            <aside class="sidebar">
+                <div class="profile-card">
+                    <div class="avatar" id="userAvatar">DP</div>
+                    <div>
+                        <h2 id="userName">Guest</h2>
+                        <p id="userEmail">Please sign in</p>
+                    </div>
+                </div>
+                <nav class="nav-links">
+                    <button data-view="feed" class="nav-btn active">🌟 Feed</button>
+                    <button data-view="create" class="nav-btn">💭 Create Dream</button>
+                    <button data-view="profile" class="nav-btn">👤 Profile</button>
+                    <button data-view="settings" class="nav-btn">⚙️ Settings</button>
+                </nav>
+                <div class="stats-panel">
+                    <div><strong id="dreamCount">0</strong><span>Dreams</span></div>
+                    <div><strong id="streakCount">0</strong><span>Streak</span></div>
+                </div>
+            </aside>
+
+            <section class="content">
+                <div id="feedView" class="card content-panel hidden">
+                    <div class="section-header">
+                        <div>
+                            <h2>Public Feed</h2>
+                            <p>Discover dreams from other creators.</p>
+                        </div>
+                    </div>
+                    <div class="feed-controls">
+                        <input id="feedSearch" type="search" placeholder="Search stories by keyword...">
+                        <select id="feedTypeFilter">
+                            <option value="All">All types</option>
+                            <option value="dream">💭 Dreams</option>
+                            <option value="fantasy">✨ Fantasy</option>
+                            <option value="scenario">🎭 Scenarios</option>
+                            <option value="story">📖 Stories</option>
+                        </select>
+                        <select id="feedMoodFilter">
+                            <option value="All">All moods</option>
+                            <option value="Joyful">😊 Joyful</option>
+                            <option value="Determined">💪 Determined</option>
+                            <option value="Peaceful">🕊️ Peaceful</option>
+                            <option value="Inspired">🌟 Inspired</option>
+                            <option value="Confident">🎯 Confident</option>
+                            <option value="Magical">🔮 Magical</option>
+                            <option value="Mysterious">🌙 Mysterious</option>
+                            <option value="Adventurous">🗺️ Adventurous</option>
+                            <option value="Romantic">💕 Romantic</option>
+                            <option value="Sci-Fi">🚀 Sci-Fi</option>
+                            <option value="Fantasy">🐉 Fantasy</option>
+                            <option value="Horror">👻 Horror</option>
+                        </select>
+                    </div>
+                    <div id="feedList" class="feed-list"></div>
+                    <button id="loadMoreBtn" class="primary-btn" style="display: none;">Load More Dreams</button>
+                </div>
+
+                <div id="createView" class="card content-panel hidden">
+                    <div class="section-header">
+                        <div>
+                            <h2>Create Your Story</h2>
+                            <p>Share your dreams, fantasies, or creative scenarios with the world.</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Basic Information -->
+                    <div class="creation-section">
+                        <h3>📝 Basic Information</h3>
+                        <label>Content Type<select id="contentType">
+                            <option value="dream">💭 Dream</option>
+                            <option value="fantasy">✨ Fantasy</option>
+                            <option value="scenario">🎭 Scenario</option>
+                            <option value="story">📖 Story</option>
+                        </select></label>
+                        <label>Title<input id="dreamTitle" type="text" placeholder="Give your creation a title..."></label>
+                        <label>Genre/Mood<select id="dreamMood">
+                            <option value="Joyful">😊 Joyful</option>
+                            <option value="Determined">💪 Determined</option>
+                            <option value="Peaceful">🕊️ Peaceful</option>
+                            <option value="Inspired">🌟 Inspired</option>
+                            <option value="Confident">🎯 Confident</option>
+                            <option value="Magical">🔮 Magical</option>
+                            <option value="Mysterious">🌙 Mysterious</option>
+                            <option value="Adventurous">🗺️ Adventurous</option>
+                            <option value="Romantic">💕 Romantic</option>
+                            <option value="Sci-Fi">🚀 Sci-Fi</option>
+                            <option value="Fantasy">🐉 Fantasy</option>
+                            <option value="Horror">👻 Horror</option>
+                        </select></label>
+                    </div>
+
+                    <!-- Story Elements -->
+                    <div class="creation-section">
+                        <h3>🎭 Story Elements</h3>
+                        <label>Setting<input id="dreamSetting" type="text" placeholder="Where does your story take place? (e.g., Enchanted forest, Future city)"></label>
+                        <label>Characters<textarea id="dreamCharacters" rows="3" placeholder="Describe your main characters... (e.g., A brave knight, A wise wizard, A curious explorer)"></textarea></label>
+                        <label>Story<textarea id="dreamText" rows="8" placeholder="Tell your story in detail..."></textarea></label>
+                        <label>Theme<input id="dreamTheme" type="text" placeholder="What's the central theme? (e.g., Courage, Love, Adventure)"></label>
+                    </div>
+
+                    <!-- Advanced Options -->
+                    <div class="creation-section">
+                        <h3>⚡ Advanced Options</h3>
+                        <label>Story Length<select id="storyLength">
+                            <option value="short">📄 Short (1-3 paragraphs)</option>
+                            <option value="medium">📖 Medium (1-2 pages)</option>
+                            <option value="long">📚 Long (3+ pages)</option>
+                        </select></label>
+                        <label>Target Audience<select id="targetAudience">
+                            <option value="general">👥 General</option>
+                            <option value="young">🧒 Young Readers</option>
+                            <option value="teen">👦 Teens</option>
+                            <option value="adult">👨 Adults</option>
+                        </select></label>
+                        <label>Writing Style<select id="writingStyle">
+                            <option value="descriptive">🎨 Descriptive</option>
+                            <option value="dialogue">💬 Dialogue-heavy</option>
+                            <option value="action">⚔️ Action-focused</option>
+                            <option value="emotional">💭 Emotional</option>
+                            <option value="mysterious">🔍 Mysterious</option>
+                        </select></label>
+                    </div>
+                    <label class="file-upload">
+                        Upload image <span class="small-text">(optional)</span>
+                        <input id="dreamImage" type="file" accept="image/*">
+                    </label>
+                    <div class="image-preview hidden" id="imagePreviewWrapper">
+                        <img id="imagePreview" alt="Dream preview">
+                        <button id="removeImageBtn" class="ghost-btn small">Remove</button>
+                    </div>
+                    <label class="checkbox-row">
+                        <input id="dreamPublic" type="checkbox" checked>
+                        <span>Share publicly to the feed</span>
+                    </label>
+                    <button id="postDreamBtn" class="primary-btn full-width">Post dream</button>
+                </div>
+
+                <div id="profileView" class="card content-panel hidden">
+                    <div class="section-header">
+                        <div>
+                            <h2>Your profile</h2>
+                            <p>Track your dreams, badges, and outreach.</p>
+                        </div>
+                        <button id="editProfileBtn" class="ghost-btn">✏️ Edit Profile</button>
+                    </div>
+                    
+                    <div id="profileDisplay">
+                        <div class="profile-cover" id="profileCover" style="background: linear-gradient(135deg, var(--accent), var(--secondary));">
+                            <label class="cover-upload" title="Upload Cover Picture">
+                                <input id="coverImageInput" type="file" accept="image/*" hidden>
+                                📷
+                            </label>
+                        </div>
+                        <div class="profile-header">
+                            <div class="profile-avatar-wrapper">
+                                <div class="profile-avatar-large" id="profileAvatarLarge">DP</div>
+                                <label class="avatar-upload" title="Upload Profile Picture">
+                                    <input id="profileImageInput" type="file" accept="image/*" hidden>
+                                    📷
+                                </label>
+                            </div>
+                            <div class="profile-info">
+                                <h3 id="profileNameDisplay">User Name</h3>
+                                <p id="profileEmailDisplay">user@example.com</p>
+                                <p id="profileBioDisplay">No bio yet</p>
+                            </div>
+                        </div>
+                        <div class="profile-summary">
+                            <div>
+                                <strong id="profileDreams">0</strong>
+                                <span>Dreams</span>
+                            </div>
+                            <div>
+                                <strong id="profileLikes">0</strong>
+                                <span>Hearts</span>
+                            </div>
+                            <div>
+                                <strong id="profileBadgeCount">0</strong>
+                                <span>Badges</span>
+                            </div>
+                        </div>
+                        <div class="badges-panel" id="badgesPanel"></div>
+                        <div class="user-posts" id="userPosts"></div>
+                    </div>
+
+                    <div id="profileEdit" class="profile-edit-form hidden">
+                        <div class="profile-edit-header">
+                            <h3>Edit Your Profile</h3>
+                            <button id="cancelProfileBtn" class="close-btn">✕</button>
+                        </div>
+                        <label>Name<input id="editName" type="text" placeholder="Your name"></label>
+                        <label>Bio<textarea id="editBio" rows="3" placeholder="Tell us about your dreams..."></textarea></label>
+                        <div class="button-group">
+                            <button id="saveProfileBtn" class="primary-btn full-width">Save Changes</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="settingsView" class="card content-panel hidden">
+                    <div class="section-header">
+                        <div>
+                            <h2>Settings</h2>
+                            <p>Manage your account, privacy, and preferences.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-container">
+                        <!-- Settings Navigation -->
+                        <div class="settings-nav">
+                            <button class="settings-nav-btn active" data-tab="account">👤 Account</button>
+                            <button class="settings-nav-btn" data-tab="security">🔐 Security</button>
+                            <button class="settings-nav-btn" data-tab="privacy">🔒 Privacy</button>
+                            <button class="settings-nav-btn" data-tab="notifications">🔔 Notifications</button>
+                            <button class="settings-nav-btn" data-tab="appearance">🎨 Appearance</button>
+                            <button class="settings-nav-btn" data-tab="content">📝 Content</button>
+                            <button class="settings-nav-btn" data-tab="advanced">⚡ Advanced</button>
+                        </div>
+
+                        <!-- Settings Content -->
+                        <div class="settings-content">
+                            <!-- Account Settings -->
+                            <div id="accountTab" class="settings-tab active">
+                                <div class="settings-section">
+                                    <h3>📧 Email & Password</h3>
+                                    <label>Email<input id="settingsEmail" type="email" placeholder="your@email.com"></label>
+                                    <label>Current Password<input id="currentPassword" type="password" placeholder="Enter current password"></label>
+                                    <label>New Password<input id="newPassword" type="password" placeholder="Enter new password"></label>
+                                    <label>Confirm New Password<input id="confirmNewPassword" type="password" placeholder="Confirm new password"></label>
+                                    <button id="updatePasswordBtn" class="primary-btn">Update Password</button>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>👤 Profile Information</h3>
+                                    <label>Display Name<input id="settingsName" type="text" placeholder="Your display name"></label>
+                                    <label>Bio<textarea id="settingsBio" rows="3" placeholder="Tell us about yourself..."></textarea></label>
+                                    <label>Website<input id="settingsWebsite" type="url" placeholder="https://yourwebsite.com"></label>
+                                    <label>Location<input id="settingsLocation" type="text" placeholder="City, Country"></label>
+                                    <button id="updateProfileBtn" class="primary-btn">Update Profile</button>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>🗑️ Account Management</h3>
+                                    <div class="danger-zone">
+                                        <p>⚠️ These actions cannot be undone</p>
+                                        <button id="exportDataBtn" class="ghost-btn">📥 Export My Data</button>
+                                        <button id="deactivateAccountBtn" class="ghost-btn">⏸️ Deactivate Account</button>
+                                        <button id="deleteAccountBtn" class="danger-btn">🗑️ Delete Account</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Privacy Settings -->
+                            <div id="privacyTab" class="settings-tab hidden">
+                                <div class="settings-section">
+                                    <h3>🔐 Privacy Controls</h3>
+                                    <label class="checkbox-row">
+                                        <input id="profilePublic" type="checkbox" checked>
+                                        <span>Make profile public</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="showEmail" type="checkbox">
+                                        <span>Show email on profile</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="allowMessages" type="checkbox" checked>
+                                        <span>Allow messages from other users</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="showActivity" type="checkbox" checked>
+                                        <span>Show activity status</span>
+                                    </label>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>📊 Data & Analytics</h3>
+                                    <label class="checkbox-row">
+                                        <input id="analyticsEnabled" type="checkbox" checked>
+                                        <span>Enable usage analytics</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="personalizedAds" type="checkbox">
+                                        <span>Allow personalized recommendations</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="dataCollection" type="checkbox" checked>
+                                        <span>Help improve DreamPost with usage data</span>
+                                    </label>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>🚫 Blocked Users</h3>
+                                    <div id="blockedUsersList">
+                                        <p>No blocked users</p>
+                                    </div>
+                                    <label>Block User<input id="blockUserInput" type="text" placeholder="Enter email to block"></label>
+                                    <button id="blockUserBtn" class="ghost-btn">Block User</button>
+                                </div>
+                            </div>
+
+                            <!-- Notification Settings -->
+                            <div id="notificationsTab" class="settings-tab hidden">
+                                <div class="settings-section">
+                                    <h3>🔔 Email Notifications</h3>
+                                    <label class="checkbox-row">
+                                        <input id="emailLikes" type="checkbox" checked>
+                                        <span>When someone likes my stories</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="emailComments" type="checkbox" checked>
+                                        <span>When someone comments on my stories</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="emailFollows" type="checkbox" checked>
+                                        <span>When someone follows me</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="emailMentions" type="checkbox" checked>
+                                        <span>When someone mentions me</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="emailWeekly" type="checkbox">
+                                        <span>Weekly digest of popular stories</span>
+                                    </label>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>🔕 Push Notifications</h3>
+                                    <label class="checkbox-row">
+                                        <input id="pushLikes" type="checkbox" checked>
+                                        <span>Instant likes notifications</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="pushComments" type="checkbox" checked>
+                                        <span>Instant comment notifications</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="pushNewFollowers" type="checkbox" checked>
+                                        <span>New follower notifications</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="pushRecommendations" type="checkbox">
+                                        <span>Recommended stories notifications</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Appearance Settings -->
+                            <div id="appearanceTab" class="settings-tab hidden">
+                                <div class="settings-section">
+                                    <h3>🎨 Theme</h3>
+                                    <label>Theme Preference<select id="themePreference">
+                                        <option value="dark">🌙 Dark (Default)</option>
+                                        <option value="light">☀️ Light</option>
+                                        <option value="auto">🔄 Auto (System)</option>
+                                    </select></label>
+                                    <label>Accent Color<select id="accentColor">
+                                        <option value="cyan">💎 Cyan (Default)</option>
+                                        <option value="purple">💜 Purple</option>
+                                        <option value="green">💚 Green</option>
+                                        <option value="orange">🧡 Orange</option>
+                                        <option value="pink">💖 Pink</option>
+                                    </select></label>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>📱 Display</h3>
+                                    <label class="checkbox-row">
+                                        <input id="compactView" type="checkbox">
+                                        <span>Compact feed view</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="showThumbnails" type="checkbox" checked>
+                                        <span>Show story thumbnails</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="animatedEffects" type="checkbox" checked>
+                                        <span>Enable animations and effects</span>
+                                    </label>
+                                    <label>Font Size<select id="fontSize">
+                                        <option value="small">📏 Small</option>
+                                        <option value="medium" selected>📐 Medium</option>
+                                        <option value="large">📏 Large</option>
+                                        <option value="extra-large">📏 Extra Large</option>
+                                    </select></label>
+                                </div>
+                            </div>
+
+                            <!-- Content Settings -->
+                            <div id="contentTab" class="settings-tab hidden">
+                                <div class="settings-section">
+                                    <h3>📝 Content Preferences</h3>
+                                    <label>Default Content Type<select id="defaultContentType">
+                                        <option value="dream">💭 Dream</option>
+                                        <option value="fantasy">✨ Fantasy</option>
+                                        <option value="scenario">🎭 Scenario</option>
+                                        <option value="story">📖 Story</option>
+                                    </select></label>
+                                    <label>Default Mood<select id="defaultMood">
+                                        <option value="Joyful">😊 Joyful</option>
+                                        <option value="Determined">💪 Determined</option>
+                                        <option value="Peaceful">🕊️ Peaceful</option>
+                                        <option value="Inspired">🌟 Inspired</option>
+                                        <option value="Confident">🎯 Confident</option>
+                                    </select></label>
+                                    <label class="checkbox-row">
+                                        <input id="autoSave" type="checkbox" checked>
+                                        <span>Auto-save drafts</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="publicDefault" type="checkbox" checked>
+                                        <span>Make stories public by default</span>
+                                    </label>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>🔍 Content Filtering</h3>
+                                    <label class="checkbox-row">
+                                        <input id="filterMature" type="checkbox">
+                                        <span>Filter mature content</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="filterViolence" type="checkbox">
+                                        <span>Filter violent content</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="filterLanguage" type="checkbox">
+                                        <span>Filter strong language</span>
+                                    </label>
+                                    <label>Content Language Preference<select id="contentLanguage">
+                                        <option value="all">🌍 All Languages</option>
+                                        <option value="en">🇺🇸 English</option>
+                                        <option value="es">🇪🇸 Spanish</option>
+                                        <option value="fr">🇫🇷 French</option>
+                                        <option value="de">🇩🇪 German</option>
+                                    </select></label>
+                                </div>
+                            </div>
+
+                            <!-- Security Settings -->
+                            <div id="securityTab" class="settings-tab hidden">
+                                <div class="settings-section">
+                                    <h3>🔐 Two-Factor Authentication</h3>
+                                    <div id="twoFactorStatus">
+                                        <label class="checkbox-row">
+                                            <input id="enable2FA" type="checkbox">
+                                            <span>Enable Two-Factor Authentication</span>
+                                        </label>
+                                    </div>
+                                    <div id="twoFactorSetup" class="hidden">
+                                        <div class="qr-code-container">
+                                            <h4>Scan this QR code with your authenticator app:</h4>
+                                            <div id="qrCode" class="qr-code"></div>
+                                            <p>Or enter this code manually:</p>
+                                            <code id="manualCode"></code>
+                                        </div>
+                                        <label>Verification Code<input id="verificationCode" type="text" placeholder="Enter 6-digit code" maxlength="6"></label>
+                                        <button id="verify2FABtn" class="primary-btn">Verify & Enable 2FA</button>
+                                    </div>
+                                    <div id="twoFactorEnabled" class="hidden">
+                                        <div class="security-status enabled">
+                                            <span class="status-icon">✅</span>
+                                            <div>
+                                                <strong>2FA is Enabled</strong>
+                                                <p>Your account is protected with two-factor authentication</p>
+                                            </div>
+                                        </div>
+                                        <label>Backup Codes<textarea id="backupCodes" rows="4" readonly placeholder="Your backup codes will appear here..."></textarea>
+                                        <button id="regenerateBackupCodesBtn" class="ghost-btn">🔄 Regenerate Backup Codes</button>
+                                        <button id="disable2FABtn" class="danger-btn">🔓 Disable 2FA</button>
+                                    </div>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>🔑 Password Security</h3>
+                                    <div class="password-strength-indicator">
+                                        <label>Current Password<input id="securityCurrentPassword" type="password" placeholder="Enter current password"></label>
+                                        <label>New Password<input id="securityNewPassword" type="password" placeholder="Enter new password"></label>
+                                        <div class="password-requirements">
+                                            <div class="requirement" id="lengthReq">
+                                                <span class="req-icon">○</span> At least 12 characters
+                                            </div>
+                                            <div class="requirement" id="uppercaseReq">
+                                                <span class="req-icon">○</span> One uppercase letter
+                                            </div>
+                                            <div class="requirement" id="lowercaseReq">
+                                                <span class="req-icon">○</span> One lowercase letter
+                                            </div>
+                                            <div class="requirement" id="numberReq">
+                                                <span class="req-icon">○</span> One number
+                                            </div>
+                                            <div class="requirement" id="specialReq">
+                                                <span class="req-icon">○</span> One special character
+                                            </div>
+                                        </div>
+                                        <label>Confirm New Password<input id="securityConfirmPassword" type="password" placeholder="Confirm new password"></label>
+                                        <button id="updateSecurityPasswordBtn" class="primary-btn">Update Password</button>
+                                    </div>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>📱 Active Sessions</h3>
+                                    <div id="activeSessions" class="sessions-list">
+                                        <div class="session-item current">
+                                            <div class="session-info">
+                                                <strong>Current Session</strong>
+                                                <p>This device • Chrome on Windows</p>
+                                                <span class="session-time">Active now</span>
+                                            </div>
+                                            <span class="session-status current">Current</span>
+                                        </div>
+                                    </div>
+                                    <button id="viewAllSessionsBtn" class="ghost-btn">View All Sessions</button>
+                                    <button id="logoutAllSessionsBtn" class="danger-btn">🔓 Log Out All Other Sessions</button>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>🚨 Login Security</h3>
+                                    <div class="login-attempts">
+                                        <p>Recent login attempts: <strong id="loginAttempts">0</strong></p>
+                                        <p>Failed attempts: <strong id="failedAttempts">0</strong></p>
+                                        <p>Last login: <strong id="lastLogin">Never</strong></p>
+                                    </div>
+                                    <label class="checkbox-row">
+                                        <input id="loginNotifications" type="checkbox" checked>
+                                        <span>Email notifications for new login attempts</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="suspiciousActivityAlert" type="checkbox" checked>
+                                        <span>Alert for suspicious activity</span>
+                                    </label>
+                                    <label>Account Lockout Threshold<select id="lockoutThreshold">
+                                        <option value="3">3 failed attempts</option>
+                                        <option value="5" selected>5 failed attempts</option>
+                                        <option value="10">10 failed attempts</option>
+                                    </select></label>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>🔍 Security Audit</h3>
+                                    <div class="audit-log">
+                                        <h4>Recent Security Events:</h4>
+                                        <div id="securityLog" class="security-events">
+                                            <p>No security events recorded</p>
+                                        </div>
+                                    </div>
+                                    <button id="downloadSecurityLogBtn" class="ghost-btn">📥 Download Security Log</button>
+                                    <button id="clearSecurityLogBtn" class="ghost-btn">🗑️ Clear Security Log</button>
+                                </div>
+                            </div>
+
+                            <!-- Advanced Settings -->
+                            <div id="advancedTab" class="settings-tab hidden">
+                                <div class="settings-section">
+                                    <h3>⚡ Performance</h3>
+                                    <label class="checkbox-row">
+                                        <input id="preloadImages" type="checkbox" checked>
+                                        <span>Preload images for faster browsing</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="enableCache" type="checkbox" checked>
+                                        <span>Enable local caching</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="compressImages" type="checkbox" checked>
+                                        <span>Compress images on upload</span>
+                                    </label>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>🔧 Developer Options</h3>
+                                    <label class="checkbox-row">
+                                        <input id="debugMode" type="checkbox">
+                                        <span>Enable debug mode</span>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="showApiCalls" type="checkbox">
+                                        <span>Show API calls in console</span>
+                                    </label>
+                                    <button id="clearCacheBtn" class="ghost-btn">🗑️ Clear Cache</button>
+                                    <button id="resetSettingsBtn" class="danger-btn">🔄 Reset All Settings</button>
+                                </div>
+
+                                <div class="settings-section">
+                                    <h3>📊 Storage</h3>
+                                    <div class="storage-info">
+                                        <p>Cache Size: <strong id="cacheSize">Calculating...</strong></p>
+                                        <p>Stored Data: <strong id="storedData">Calculating...</strong></p>
+                                    </div>
+                                    <button id="manageStorageBtn" class="ghost-btn">📁 Manage Storage</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="right-sidebar">
+                <div class="card">
+                    <h3>🔥 Trending Now</h3>
+                    <div id="trendingList" class="trending-list">No trending stories yet.</div>
+                </div>
+                <div class="card">
+                    <h3>🎯 Recommended for You</h3>
+                    <div id="recommendedList" class="recommended-list">Loading recommendations...</div>
+                </div>
+                <div class="card">
+                    <h3>� Your Activity</h3>
+                    <div class="activity-stats">
+                        <div class="stat-item">
+                            <span class="stat-icon">❤️</span>
+                            <div>
+                                <strong id="activityLikes">0</strong>
+                                <span>Likes received</span>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-icon">💬</span>
+                            <div>
+                                <strong id="activityComments">0</strong>
+                                <span>Comments</span>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-icon">🔖</span>
+                            <div>
+                                <strong id="activityBookmarks">0</strong>
+                                <span>Bookmarks</span>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-icon">👁️</span>
+                            <div>
+                                <strong id="activityViews">0</strong>
+                                <span>Profile views</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>🌈 Popular Tags</h3>
+                    <div id="popularTags" class="tag-cloud">
+                        <span class="tag">magical</span>
+                        <span class="tag">adventure</span>
+                        <span class="tag">romance</span>
+                        <span class="tag">mystery</span>
+                        <span class="tag">sci-fi</span>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>🏆 Top Creators</h3>
+                    <div id="topCreators" class="creator-list">Loading top creators...</div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <button id="fab" class="fab" onclick="changeView('create')">✨</button>
+
+    <!-- Modal Overlay System -->
+<div id="modalOverlay" class="modal-overlay">
+    <div class="modal-overlay-bg"></div>
+</div>
+
+<!-- Profile Modal -->
+<div id="profileModal" class="modal-popup">
+    <div class="modal-header">
+        <h2>👤 Profile</h2>
+        <button class="modal-close-btn" onclick="closeModal('profileModal')">✕</button>
+    </div>
+    <div class="modal-content">
+        <div class="modal-profile-section">
+            <div class="modal-profile-cover" id="modalProfileCover" style="background: linear-gradient(135deg, var(--accent), var(--secondary));">
+                <label class="modal-cover-upload" title="Upload Cover Picture">
+                    <input id="modalCoverImageInput" type="file" accept="image/*" hidden>
+                    📷
+                </label>
+            </div>
+            <div class="modal-profile-header">
+                <div class="modal-profile-avatar-wrapper">
+                    <div class="modal-profile-avatar-large" id="modalProfileAvatarLarge">DP</div>
+                    <label class="modal-avatar-upload" title="Upload Profile Picture">
+                        <input id="modalProfileImageInput" type="file" accept="image/*" hidden>
+                        📷
+                    </label>
+                </div>
+                <div class="modal-profile-info">
+                    <h3 id="modalProfileNameDisplay">User Name</h3>
+                    <p id="modalProfileEmailDisplay">user@example.com</p>
+                    <p id="modalProfileBioDisplay">No bio yet</p>
+                </div>
+            </div>
+            <div class="modal-profile-summary">
+                <div>
+                    <strong id="modalProfileDreams">0</strong>
+                    <span>Dreams</span>
+                </div>
+                <div>
+                    <strong id="modalProfileLikes">0</strong>
+                    <span>Hearts</span>
+                </div>
+                <div>
+                    <strong id="modalProfileBadgeCount">0</strong>
+                    <span>Badges</span>
+                </div>
+            </div>
+            <div class="modal-badges-panel" id="modalBadgesPanel"></div>
+            <div class="modal-user-posts" id="modalUserPosts"></div>
+        </div>
+
+        <div class="modal-profile-edit-form hidden" id="modalProfileEdit">
+            <div class="modal-edit-header">
+                <h3>Edit Your Profile</h3>
+                <button class="modal-close-btn" onclick="closeModal('profileModal')">✕</button>
+            </div>
+            <label>Name<input id="modalEditName" type="text" placeholder="Your name"></label>
+            <label>Bio<textarea id="modalEditBio" rows="3" placeholder="Tell us about your dreams..."></textarea></label>
+            <div class="modal-button-group">
+                <button class="primary-btn full-width" onclick="saveModalProfile()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal-actions">
+        <button class="ghost-btn" onclick="toggleModalProfileEdit()">✏️ Edit Profile</button>
+    </div>
+</div>
+
+<!-- Settings Modal -->
+<div id="settingsModal" class="modal-popup">
+    <div class="modal-header">
+        <h2>⚙️ Settings</h2>
+        <button class="modal-close-btn" onclick="closeModal('settingsModal')">✕</button>
+    </div>
+    <div class="modal-content">
+        <div class="modal-tabs">
+            <button class="modal-tab-btn active" data-tab="account">👤 Account</button>
+            <button class="modal-tab-btn" data-tab="privacy">🔒 Privacy</button>
+            <button class="modal-tab-btn" data-tab="notifications">🔔 Notifications</button>
+            <button class="modal-tab-btn" data-tab="appearance">🎨 Appearance</button>
+            <button class="modal-tab-btn" data-tab="content">📝 Content</button>
+            <button class="modal-tab-btn" data-tab="advanced">⚡ Advanced</button>
+        </div>
+        
+        <div class="modal-tab-content">
+            <!-- Account Tab -->
+            <div class="modal-tab-panel active" data-panel="account">
+                <div class="settings-section">
+                    <h3>👤 Account Information</h3>
+                    <label>Display Name<input id="modalDisplayName" type="text" placeholder="Your name"></label>
+                    <label>Email<input id="modalEmail" type="email" placeholder="you@example.com" readonly></label>
+                    <label>Bio<textarea id="modalBio" rows="3" placeholder="Tell us about your dreams..."></textarea>
+                    <button class="primary-btn">Update Profile</button>
+                </div>
+                <div class="settings-section">
+                    <h3>🔑 Password</h3>
+                    <label>Current Password<input type="password" placeholder="Enter current password"></label>
+                    <label>New Password<input type="password" placeholder="Enter new password"></label>
+                    <label>Confirm Password<input type="password" placeholder="Confirm new password"></label>
+                    <button class="primary-btn">Update Password</button>
+                </div>
+            </div>
+
+            <!-- Privacy Tab -->
+            <div class="modal-tab-panel" data-panel="privacy">
+                <div class="settings-section">
+                    <h3>🔒 Privacy Settings</h3>
+                    <label class="checkbox-row">
+                        <input type="checkbox" checked>
+                        <span>Make profile public</span>
+                    </label>
+                    <label class="checkbox-row">
+                        <input type="checkbox">
+                        <span>Show email in profile</span>
+                    </label>
+                    <label class="checkbox-row">
+                        <input type="checkbox" checked>
+                        <span>Allow dream sharing</span>
+                    </label>
+                </div>
+                <div class="settings-section">
+                    <h3>🚫 Blocked Users</h3>
+                    <div class="blocked-users-list">No blocked users</div>
+                    <button class="ghost-btn">Manage Blocked Users</button>
+                </div>
+            </div>
+
+            <!-- Notifications Tab -->
+            <div class="modal-tab-panel" data-panel="notifications">
+                <div class="settings-section">
+                    <h3>🔔 Notification Preferences</h3>
+                    <div class="notification-grid">
+                        <div class="notification-item">
+                            <div class="notification-icon">📧</div>
+                            <div class="notification-content">
+                                <h4>Email Notifications</h4>
+                                <p>Receive updates about your dreams and interactions via email</p>
+                                <div class="notification-options">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked>
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">New Dreams</span>
+                                    </label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked>
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">Likes</span>
+                                    </label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked>
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">Comments</span>
+                                    </label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">New Followers</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="notification-item">
+                            <div class="notification-icon">📱</div>
+                            <div class="notification-content">
+                                <h4>Push Notifications</h4>
+                                <p>Get instant alerts on your mobile device</p>
+                                <div class="notification-options">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">Enable Push</span>
+                                    </label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked>
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">Dream Mentions</span>
+                                    </label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">Daily Digest</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="notification-item">
+                            <div class="notification-icon">🔕</div>
+                            <div class="notification-content">
+                                <h4>In-App Notifications</h4>
+                                <p>See updates while using DreamPost</p>
+                                <div class="notification-options">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked>
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">Show Badge</span>
+                                    </label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked>
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">Sound Effects</span>
+                                    </label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">Desktop Alerts</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h3>⏰ Notification Schedule</h3>
+                    <div class="schedule-controls">
+                        <div class="schedule-item">
+                            <label>Quiet Hours</label>
+                            <div class="time-range">
+                                <input type="time" value="22:00">
+                                <span>to</span>
+                                <input type="time" value="08:00">
+                            </div>
+                        </div>
+                        <div class="schedule-item">
+                            <label>Daily Digest Time</label>
+                            <input type="time" value="09:00">
+                        </div>
+                        <div class="schedule-item">
+                            <label>Weekend Mode</label>
+                            <div class="weekend-options">
+                                <label class="radio-option">
+                                    <input type="radio" name="weekend" value="normal" checked>
+                                    <span>Normal</span>
+                                </label>
+                                <label class="radio-option">
+                                    <input type="radio" name="weekend" value="reduced">
+                                    <span>Reduced</span>
+                                </label>
+                                <label class="radio-option">
+                                    <input type="radio" name="weekend" value="off">
+                                    <span>Off</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Appearance Tab -->
+            <div class="modal-tab-panel" data-panel="appearance">
+                <div class="settings-section">
+                    <h3>🎨 Appearance</h3>
+                    <label>Theme<select>
+                        <option value="dark">🌙 Dark</option>
+                        <option value="light">☀️ Light</option>
+                        <option value="auto">🔄 Auto</option>
+                    </select></label>
+                    <label>Accent Color<select>
+                        <option value="cyan">💎 Cyan</option>
+                        <option value="purple">💜 Purple</option>
+                        <option value="green">💚 Green</option>
+                        <option value="orange">🧡 Orange</option>
+                    </select></label>
+                    <label>Font Size<select>
+                        <option value="small">📏 Small</option>
+                        <option value="medium">📐 Medium</option>
+                        <option value="large">📏 Large</option>
+                        <option value="extra-large">📏 Extra Large</option>
+                    </select></label>
+                </div>
+            </div>
+
+            <!-- Content Tab -->
+            <div class="modal-tab-panel" data-panel="content">
+                <div class="settings-section">
+                    <h3>📝 Content Preferences</h3>
+                    <label>Default Content Type<select>
+                        <option value="dream">💭 Dream</option>
+                        <option value="fantasy">✨ Fantasy</option>
+                        <option value="scenario">🎭 Scenario</option>
+                        <option value="story">📖 Story</option>
+                    </select></label>
+                    <label>Default Mood<select>
+                        <option value="Joyful">😊 Joyful</option>
+                        <option value="Determined">💪 Determined</option>
+                        <option value="Peaceful">🕊️ Peaceful</option>
+                        <option value="Inspired">🌟 Inspired</option>
+                    </select></label>
+                    <label>Content Language<select>
+                        <option value="english">🇺🇸 English</option>
+                        <option value="spanish">🇪🇸 Spanish</option>
+                        <option value="french">🇫🇷 French</option>
+                    </select></label>
+                </div>
+            </div>
+
+            <!-- Advanced Tab -->
+            <div class="modal-tab-panel" data-panel="advanced">
+                <div class="settings-section">
+                    <h3>⚡ Performance</h3>
+                    <div class="performance-grid">
+                        <div class="performance-item">
+                            <div class="performance-icon">🚀</div>
+                            <div class="performance-content">
+                                <h4>Image Preloading</h4>
+                                <p>Load images before you scroll to them for smoother browsing</p>
+                                <div class="performance-status">
+                                    <span class="status-indicator active"></span>
+                                    <span class="status-text">Enabled</span>
+                                </div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="performance-item">
+                            <div class="performance-icon">💾</div>
+                            <div class="performance-content">
+                                <h4>Local Caching</h4>
+                                <p>Store frequently accessed data locally for instant access</p>
+                                <div class="performance-status">
+                                    <span class="status-indicator active"></span>
+                                    <span class="status-text">Active</span>
+                                </div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="performance-item">
+                            <div class="performance-icon">🗜️</div>
+                            <div class="performance-content">
+                                <h4>Image Compression</h4>
+                                <p>Automatically compress images to save bandwidth</p>
+                                <div class="performance-status">
+                                    <span class="status-indicator active"></span>
+                                    <span class="status-text">Optimized</span>
+                                </div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="performance-item">
+                            <div class="performance-icon">📡</div>
+                            <div class="performance-content">
+                                <h4>Lazy Loading</h4>
+                                <p>Load content only when it becomes visible</p>
+                                <div class="performance-status">
+                                    <span class="status-indicator"></span>
+                                    <span class="status-text">Disabled</span>
+                                </div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h3>🔧 Developer Options</h3>
+                    <div class="developer-grid">
+                        <div class="developer-item">
+                            <div class="developer-icon">🐛</div>
+                            <div class="developer-content">
+                                <h4>Debug Mode</h4>
+                                <p>Show detailed debugging information and error messages</p>
+                                <div class="developer-warning">
+                                    <span class="warning-icon">⚠️</span>
+                                    <span>May affect performance</span>
+                                </div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="developer-item">
+                            <div class="developer-icon">📡</div>
+                            <div class="developer-content">
+                                <h4>API Call Logging</h4>
+                                <p>Display all API requests and responses in console</p>
+                                <div class="developer-info">
+                                    <span class="info-icon">ℹ️</span>
+                                    <span>For development only</span>
+                                </div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="developer-item">
+                            <div class="developer-icon">⏱️</div>
+                            <div class="developer-content">
+                                <h4>Performance Monitoring</h4>
+                                <p>Track render times and component performance</p>
+                                <div class="developer-metrics">
+                                    <span class="metric">Avg: 12ms</span>
+                                    <span class="metric">Peak: 45ms</span>
+                                </div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="developer-actions">
+                        <button class="action-btn primary">
+                            <span class="btn-icon">🗑️</span>
+                            <span class="btn-text">Clear Cache</span>
+                            <span class="btn-description">Remove stored data</span>
+                        </button>
+                        <button class="action-btn secondary">
+                            <span class="btn-icon">📊</span>
+                            <span class="btn-text">Export Logs</span>
+                            <span class="btn-description">Download debug data</span>
+                        </button>
+                        <button class="action-btn danger">
+                            <span class="btn-icon">🔄</span>
+                            <span class="btn-text">Reset Settings</span>
+                            <span class="btn-description">Restore defaults</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h3>📊 Storage Management</h3>
+                    <div class="storage-overview">
+                        <div class="storage-chart">
+                            <div class="storage-bar">
+                                <div class="storage-segment cache" style="width: 35%"></div>
+                                <div class="storage-segment data" style="width: 25%"></div>
+                                <div class="storage-segment images" style="width: 40%"></div>
+                            </div>
+                            <div class="storage-legend">
+                                <div class="legend-item">
+                                    <span class="legend-color cache"></span>
+                                    <span class="legend-text">Cache (2.3MB)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-color data"></span>
+                                    <span class="legend-text">Data (1.6MB)</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-color images"></span>
+                                    <span class="legend-text">Images (2.6MB)</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="storage-stats">
+                            <div class="stat-item">
+                                <strong>6.5MB</strong>
+                                <span>Total Used</span>
+                            </div>
+                            <div class="stat-item">
+                                <strong>93.5MB</strong>
+                                <span>Available</span>
+                            </div>
+                            <div class="stat-item">
+                                <strong>100MB</strong>
+                                <span>Total Space</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="storage-actions">
+                        <button class="ghost-btn">📁 Manage Storage</button>
+                        <button class="ghost-btn">🗑️ Clear Temporary Files</button>
+                        <button class="ghost-btn">📦 Export Data</button>
+                    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Build files
+dist/
+build/
+
+# Cache
+.cache/
+.parcel-cache/
+
+# Login directory (contains wallpapers and login files)
+login/
+
+# Test files
+test-rate-limit.js
+
+# Git directory
+Git/

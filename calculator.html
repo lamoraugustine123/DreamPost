@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three-in-One Calculator</title>
+    <link rel="stylesheet" href="calculator.css">
+</head>
+<body>
+    <div class="calculator">
+        <div class="header">
+            <h1>Three-in-One Calculator</h1>  
+            <div class="mode-switcher">
+                <button class="mode-btn active" data-mode="standard">Standard</button>
+                <button class="mode-btn" data-mode="scientific">Scientific</button>
+                <button class="mode-btn" data-mode="programmer">Programmer</button>
+            </div>
+        </div>
+        <div class="display">
+            <input type="text" id="display" readonly>
+        </div>
+        <div class="buttons" id="buttons">
+            <!-- Buttons will be dynamically generated -->
+        </div>
+        <div class="history">
+            <h3>History</h3>
+            <ul id="history-list"></ul>
+        </div>
+    </div>
+    <script src="calculator.js"></script>
+</body>
+</html>
