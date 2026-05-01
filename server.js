@@ -4,10 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
+const sqlite3 = require('sqlite3').verbose();
 
 const app = express();
-const port = process.env.PORT || 3002;
-const dataPath = path.join(__dirname, 'data.json');
+const port = process.env.PORT || 3003;
+const dbPath = path.join(__dirname, 'dreampost.db');
 
 function hashPassword(password) {
     const salt = crypto.randomBytes(16).toString('hex');
@@ -109,26 +110,80 @@ app.use(generalLimiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(__dirname));
 
-function readData() {
-    try {
-        return JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-    } catch (error) {
-        return { users: [], posts: [] };
+// Initialize database
+const db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+        console.error('Error opening database:', err.message);
+    } else {
+        console.log('Connected to SQLite database.');
+        initializeDatabase();
     }
+});
+
+function initializeDatabase() {
+    const schema = fs.readFileSync(path.join(__dirname, 'database.sql'), 'utf8');
+    db.exec(schema, (err) => {
+        if (err) {
+            console.error('Error creating database schema:', err.message);
+        } else {
+            console.log('Database schema created successfully.');
+        }
+    });
 }
 
-function writeData(data) {
-    fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
+// Database helper functions
+function getUserByEmail(email, callback) {
+    db.get('SELECT * FROM users WHERE email = ?', [email.toLowerCase()], callback);
+}
+
+function createUser(user, callback) {
+    const stmt = db.prepare('INSERT INTO users (id, name, email, password, salt, joinedAt, badgeShareCount, bio, profileImage, coverImage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    stmt.run([user.id, user.name, user.email, user.password, user.salt, user.joinedAt, user.badgeShareCount || 0, user.bio || null, user.profileImage || null, user.coverImage || null], callback);
+    stmt.finalize();
+}
+
+function getPosts(callback) {
+    db.all('SELECT p.*, GROUP_CONCAT(l.userEmail) as likedBy FROM posts p LEFT JOIN likes l ON p.id = l.postId WHERE p.public = 1 GROUP BY p.id ORDER BY p.createdAt DESC', callback);
+}
+
+function createPost(post, callback) {
+    const stmt = db.prepare('INSERT INTO posts (id, title, text, mood, image, public, authorEmail, authorName, likes, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    stmt.run([post.id, post.title, post.text, post.mood, post.image, post.public ? 1 : 0, post.authorEmail, post.authorName, post.likes || 0, post.createdAt], callback);
+    stmt.finalize();
+}
+
+function updatePost(postId, changes, callback) {
+    const fields = Object.keys(changes);
+    const values = Object.values(changes);
+    const setClause = fields.map(field => `${field} = ?`).join(', ');
+    
+    const stmt = db.prepare(`UPDATE posts SET ${setClause} WHERE id = ?`);
+    stmt.run([...values, postId], callback);
+    stmt.finalize();
 }
 
 app.get('/api/users', (req, res) => {
-    const data = readData();
     const email = req.query.email;
     if (email) {
-        const user = data.users.find(u => u.email === email.toLowerCase());
-        return res.json(user || null);
+        getUserByEmail(email, (err, user) => {
+            if (err) {
+                return res.status(500).json({ error: 'Database error' });
+            }
+            if (user) {
+                // Remove sensitive data
+                const { password, salt, ...safeUser } = user;
+                return res.json(safeUser);
+            }
+            res.json(null);
+        });
+    } else {
+        db.all('SELECT id, name, email, joinedAt, badgeShareCount, bio, profileImage, coverImage FROM users', (err, users) => {
+            if (err) {
+                return res.status(500).json({ error: 'Database error' });
+            }
+            res.json(users);
+        });
     }
-    res.json(data.users);
 });
 
 app.post('/api/signup', authLimiter, (req, res) => {
@@ -155,25 +210,35 @@ app.post('/api/signup', authLimiter, (req, res) => {
         return res.status(400).json({ error: 'Password must be between 8 and 128 characters.' });
     }
     
-    const data = readData();
-    const existing = data.users.find(u => u.email === sanitizedEmail);
-    if (existing) {
-        return res.status(409).json({ error: 'Email already registered.' });
-    }
-    
-    const { salt, hash } = hashPassword(password);
-    const user = {
-        id: Date.now().toString(),
-        name: sanitizedName,
-        email: sanitizedEmail,
-        password: hash,
-        salt,
-        joinedAt: Date.now(),
-        badgeShareCount: 0,
-    };
-    data.users.push(user);
-    writeData(data);
-    res.json({ ...user, password: undefined, salt: undefined });
+    // Check if user already exists
+    getUserByEmail(sanitizedEmail, (err, existing) => {
+        if (err) {
+            return res.status(500).json({ error: 'Database error' });
+        }
+        if (existing) {
+            return res.status(409).json({ error: 'Email already registered.' });
+        }
+        
+        const { salt, hash } = hashPassword(password);
+        const user = {
+            id: Date.now().toString(),
+            name: sanitizedName,
+            email: sanitizedEmail,
+            password: hash,
+            salt,
+            joinedAt: Date.now(),
+            badgeShareCount: 0,
+        };
+        
+        createUser(user, (err) => {
+            if (err) {
+                return res.status(500).json({ error: 'Failed to create user' });
+            }
+            // Remove sensitive data from response
+            const { password, salt, ...safeUser } = user;
+            res.json(safeUser);
+        });
+    });
 });
 
 app.post('/api/login', authLimiter, (req, res) => {
@@ -181,37 +246,41 @@ app.post('/api/login', authLimiter, (req, res) => {
     if (!email || !password) {
         return res.status(400).json({ error: 'Missing login fields.' });
     }
-    const data = readData();
-    const user = data.users.find(u => u.email === email.toLowerCase());
-    if (!user) {
-        return res.status(401).json({ error: 'Invalid credentials.' });
-    }
     
-    // Handle legacy users without salt (plain text passwords)
-    if (!user.salt) {
-        if (user.password === password) {
-            // Upgrade to hashed password
-            const { salt, hash } = hashPassword(password);
-            user.password = hash;
-            user.salt = salt;
-            writeData(data);
-            return res.json({ ...user, password: undefined, salt: undefined });
-        } else {
+    getUserByEmail(email.toLowerCase(), (err, user) => {
+        if (err) {
+            return res.status(500).json({ error: 'Database error' });
+        }
+        if (!user) {
             return res.status(401).json({ error: 'Invalid credentials.' });
         }
-    }
-    
-    // Verify hashed password
-    if (!verifyPassword(password, user.salt, user.password)) {
-        return res.status(401).json({ error: 'Invalid credentials.' });
-    }
-    
-    res.json({ ...user, password: undefined, salt: undefined });
+        
+        // Verify hashed password
+        if (!verifyPassword(password, user.salt, user.password)) {
+            return res.status(401).json({ error: 'Invalid credentials.' });
+        }
+        
+        // Remove sensitive data from response
+        const { password: pwd, salt, ...safeUser } = user;
+        res.json(safeUser);
+    });
 });
 
 app.get('/api/posts', (req, res) => {
-    const data = readData();
-    res.json(data.posts || []);
+    getPosts((err, posts) => {
+        if (err) {
+            return res.status(500).json({ error: 'Database error' });
+        }
+        
+        // Process posts to match expected format
+        const processedPosts = posts.map(post => ({
+            ...post,
+            likedBy: post.likedBy ? post.likedBy.split(',') : [],
+            public: Boolean(post.public)
+        }));
+        
+        res.json(processedPosts);
+    });
 });
 
 app.post('/api/posts', (req, res) => {
@@ -246,7 +315,6 @@ app.post('/api/posts', (req, res) => {
         return res.status(400).json({ error: 'Invalid mood selection.' });
     }
     
-    const data = readData();
     const post = {
         id: Date.now().toString(),
         title: sanitizedTitle,
@@ -257,26 +325,57 @@ app.post('/api/posts', (req, res) => {
         authorEmail: sanitizedAuthorEmail,
         authorName: sanitizedAuthorName,
         likes: 0,
-        likedBy: [],
-        comments: [],
         createdAt: Date.now(),
     };
-    data.posts.push(post);
-    writeData(data);
-    res.json(post);
+    
+    createPost(post, (err) => {
+        if (err) {
+            return res.status(500).json({ error: 'Failed to create post' });
+        }
+        res.json(post);
+    });
 });
 
 app.put('/api/posts/:id', (req, res) => {
     const { id } = req.params;
-    const data = readData();
-    const post = data.posts.find(p => p.id === id);
-    if (!post) {
-        return res.status(404).json({ error: 'Post not found.' });
+    const changes = req.body;
+    
+    // Remove sensitive fields that shouldn't be updated directly
+    const { id: _, createdAt, ...safeChanges } = changes;
+    
+    updatePost(id, safeChanges, (err) => {
+        if (err) {
+            return res.status(500).json({ error: 'Failed to update post' });
+        }
+        
+        // Return updated post
+        db.get('SELECT * FROM posts WHERE id = ?', [id], (err, post) => {
+            if (err || !post) {
+                return res.status(404).json({ error: 'Post not found.' });
+            }
+            res.json(post);
+        });
+    });
+});
+
+// Profile information update endpoint
+app.put('/api/users/profile-info', async (req, res) => {
+    const { email, name, bio, website, location } = req.body;
+    
+    if (!email || !name) {
+        return res.status(400).json({ error: 'Email and name are required' });
     }
-    const fields = req.body;
-    Object.assign(post, fields);
-    writeData(data);
-    res.json(post);
+    
+    db.run('UPDATE users SET name = ?, bio = ?, website = ?, location = ? WHERE email = ?', 
+        [name, bio || null, website || null, location || null, email], (err) => {
+        if (err) {
+            console.error('Error updating profile info:', err);
+            return res.status(500).json({ error: 'Failed to update profile information' });
+        }
+        
+        console.log(`Profile info updated for user: ${email}`, { name, bio, website, location });
+        res.json({ success: true, message: 'Profile information updated successfully' });
+    });
 });
 
 app.get('*', (req, res) => {

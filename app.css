@@ -195,6 +195,42 @@ select {
     min-height: 0;
 }
 
+/* Modern Feed List */
+.modern-feed-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+    min-height: 0;
+}
+
+.modern-feed-list:empty::after {
+    content: 'No posts yet. Be the first to share your dream!';
+    display: block;
+    text-align: center;
+    color: var(--text-secondary);
+    font-style: italic;
+    padding: var(--spacing-2xl);
+}
+
+.load-more-btn {
+    width: 100%;
+    padding: var(--spacing-md);
+    background: var(--primary);
+    color: var(--text-white);
+    border: none;
+    border-radius: var(--radius-lg);
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-all);
+    margin-top: var(--spacing-lg);
+}
+
+.load-more-btn:hover {
+    background: var(--primary-dark);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
 /* Right Sidebar - Static Positioning */
 .right-sidebar {
     display: flex;
@@ -208,202 +244,91 @@ select {
     padding-left: var(--spacing-lg);
 }
 
-/* Right Sidebar Cards - Hybrid Design */
-.suggestions-card,
-.trending-card,
-.activity-card,
-.quick-links-card {
+/* WhatsApp-style Stories */
+.stories-section {
+    margin-bottom: var(--spacing-lg);
+}
+
+.stories-container {
+    display: flex;
+    gap: var(--spacing-md);
+    overflow-x: auto;
+    padding: var(--spacing-sm) 0;
+    scroll-behavior: smooth;
+}
+
+.stories-container::-webkit-scrollbar {
+    height: 6px;
+}
+
+.stories-container::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-full);
+}
+
+.stories-container::-webkit-scrollbar-thumb {
+    background: var(--whatsapp);
+    border-radius: var(--radius-full);
+}
+
+.stories-container::-webkit-scrollbar-thumb:hover {
+    background: var(--whatsapp-dark);
+}
+
+.story-item {
+    flex: 0 0 auto;
+    width: 120px;
+}
+
+.whatsapp-story-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: var(--radius-xl);
-    padding: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-sm);
     transition: var(--transition-all);
     position: relative;
     overflow: hidden;
+    cursor: pointer;
+    min-height: 180px;
+    display: flex;
+    flex-direction: column;
 }
 
-.suggestions-card::before,
-.trending-card::before,
-.activity-card::before,
-.quick-links-card::before {
+.whatsapp-story-card:hover {
+    border-color: var(--whatsapp);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.whatsapp-story-card::before {
     content: '';
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     height: 3px;
-    background: var(--gradient-hybrid);
+    background: var(--gradient-whatsapp);
     opacity: 0;
     transition: opacity var(--transition-normal);
 }
 
-.suggestions-card:hover::before,
-.trending-card:hover::before,
-.activity-card:hover::before,
-.quick-links-card:hover::before {
+.whatsapp-story-card:hover::before {
     opacity: 1;
 }
 
-.suggestions-card:hover,
-.trending-card:hover,
-.activity-card:hover,
-.quick-links-card:hover {
-    border-color: var(--primary);
-    box-shadow: var(--shadow-lg);
-    transform: translateY(-2px);
-}
-
-/* Suggestions Card */
-.suggestions-title,
-.trending-title,
-.activity-title,
-.quick-links-title {
-    font-weight: 700;
-    font-size: var(--font-size-base);
-    color: var(--text);
-    margin: 0 0 var(--spacing-md) 0;
-}
-
-.suggestions-list {
+/* Story Add Card */
+.story-add {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-md);
-}
-
-.suggestion-item {
-    display: flex;
     align-items: center;
-    gap: var(--spacing-md);
-    padding: var(--spacing-sm);
+    justify-content: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    min-height: 160px;
+    background: var(--bg-tertiary);
+    border: 2px dashed var(--whatsapp);
     border-radius: var(--radius-lg);
     transition: var(--transition-all);
-}
-
-.suggestion-item:hover {
-    background: var(--bg-hover);
-}
-
-.suggestion-avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: var(--radius-full);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-white);
-    font-weight: 700;
-    font-size: var(--font-size-sm);
-    transition: var(--transition-all);
-}
-
-.suggestion-avatar:hover {
-    transform: scale(1.05);
-}
-
-.suggestion-info {
-    flex: 1;
-    min-width: 0;
-}
-
-.suggestion-name {
-    font-weight: 600;
-    font-size: var(--font-size-sm);
-    color: var(--text);
-    margin-bottom: 2px;
-}
-
-.suggestion-handle {
-    font-size: var(--font-size-xs);
-    color: var(--text-secondary);
-}
-
-.suggestion-btn {
-    padding: var(--spacing-xs) var(--spacing-md);
-    background: var(--primary);
-    color: var(--text-white);
-    border: none;
-    border-radius: var(--radius-full);
-    font-size: var(--font-size-xs);
-    font-weight: 600;
-    cursor: pointer;
-    transition: var(--transition-all);
-}
-
-.suggestion-btn:hover {
-    background: var(--primary-dark);
-    transform: translateY(-1px);
-}
-
-/* Trending Topics */
-.trending-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
-}
-
-.trending-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--spacing-sm);
-    border-radius: var(--radius-md);
-    transition: var(--transition-all);
-}
-
-.trending-item:hover {
-    background: var(--bg-hover);
-}
-
-.trending-tag {
-    color: var(--primary);
-    font-weight: 600;
-    font-size: var(--font-size-sm);
-}
-
-.trending-count {
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
-    font-weight: 500;
-}
-
-/* Activity List */
-.activity-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-}
-
-.activity-item {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    padding: var(--spacing-sm);
-    border-radius: var(--radius-md);
-    transition: var(--transition-all);
-}
-
-.activity-item:hover {
-    background: var(--bg-hover);
-}
-
-.activity-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-full);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-white);
-    font-weight: 600;
-    font-size: var(--font-size-xs);
-    transition: var(--transition-all);
-}
-
-.activity-avatar:hover {
-    transform: scale(1.05);
-}
-
-.activity-content {
     flex: 1;
     min-width: 0;
 }
@@ -3393,7 +3318,7 @@ textarea {
 }
 
 .settings-nav-btn:hover {
-    background: rgba(0, 212, 255, 0.05);
+    background: rgba(63, 195, 252, 0.05);
     border-color: var(--accent);
     color: #e0e0e0;
     transform: translateX(4px);

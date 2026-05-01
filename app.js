@@ -46,9 +46,13 @@ const elements = {
     loginBtn: document.getElementById('loginBtn'),
     signupBtn: document.getElementById('signupBtn'),
     logoutBtn: document.getElementById('logoutBtn'),
-    userAvatar: document.getElementById('userAvatar'),
-    userName: document.getElementById('userName'),
-    userEmail: document.getElementById('userEmail'),
+    userAvatar: document.getElementById('dropdownAvatar'),
+    userName: document.getElementById('dropdownUsername'),
+    userEmail: document.getElementById('dropdownEmail'),
+    aiChatBtn: document.querySelector('.ai-chat-btn'),
+    aiAvatar: document.querySelector('.ai-avatar-large'),
+    aiName: document.querySelector('.ai-name'),
+    aiStatus: document.querySelector('.ai-status'),
     feedView: document.getElementById('feedView'),
     createView: document.getElementById('createView'),
     profileView: document.getElementById('profileView'),
@@ -220,69 +224,80 @@ async function apiFetch(path, options = {}) {
 }
 
 async function getUser(email) {
-    if (!email) return null;
-    return apiFetch(`/users?email=${encodeURIComponent(email)}`);
+    try {
+        const response = await fetch(`/api/users?email=${encodeURIComponent(email)}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const user = await response.json();
+        return user;
+    } catch (error) {
+        console.error('Error getting user:', error);
+        return null;
+    }
 }
 
 async function loginUser(email, password) {
     try {
-        // Get users from data.json file
-        const response = await fetch('./data.json');
-        const data = await response.json();
+        const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email, password }),
+        });
         
-        const user = data.users.find(u => u.email === email && u.password === password);
-        
-        if (user) {
-            // Store session in localStorage
-            localStorage.setItem('dreampost_session', JSON.stringify(user));
-            return { success: true, user };
-        } else {
-            return { success: false, error: 'Invalid email or password' };
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Login failed');
         }
+        
+        const user = await response.json();
+        return user;
     } catch (error) {
         console.error('Login error:', error);
-        return { success: false, error: 'Login failed' };
+        throw error;
     }
 }
 
 async function signupUser(name, email, password) {
     try {
-        // Get users from data.json file
-        const response = await fetch('./data.json');
-        const data = await response.json();
+        const response = await fetch('/api/signup', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ name, email, password }),
+        });
         
-        // Check if user already exists
-        if (data.users.find(u => u.email === email)) {
-            return { success: false, error: 'User already exists' };
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Signup failed');
         }
         
-        // For demo purposes, just store in localStorage session
-        const newUser = {
-            id: 'user-' + Date.now(),
-            name: name,
-            email: email,
-            password: password,
-            bio: '',
-            createdAt: new Date().toISOString()
-        };
-        
-        localStorage.setItem('dreampost_session', JSON.stringify(newUser));
-        
-        return { success: true, user: newUser };
+        const user = await response.json();
+        return { success: true, user };
     } catch (error) {
         console.error('Signup error:', error);
-        return { success: false, error: 'Signup failed' };
+        return { success: false, error: error.message || 'Signup failed' };
     }
 }
 
 async function getPosts() {
     try {
-        // Fetch posts from data.json file
-        const response = await fetch('./data.json');
-        const data = await response.json();
+        console.log('Fetching posts from database API...');
+        // Fetch posts from database API
+        const response = await fetch('/api/posts');
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const posts = await response.json();
+        console.log('Posts received from API:', posts);
         
         // Convert posts array to have proper date objects
-        const posts = data.posts.map(post => ({
+        const processedPosts = posts.map(post => ({
             ...post,
             createdAt: new Date(post.createdAt),
             likes: post.likes || 0,
@@ -290,9 +305,11 @@ async function getPosts() {
             comments: post.comments || []
         }));
         
-        return posts;
+        console.log('Processed posts:', processedPosts);
+        return processedPosts;
     } catch (error) {
         console.error('Error getting posts:', error);
+        console.error('Error details:', error.message);
         return [];
     }
 }
@@ -310,17 +327,47 @@ async function savePosts(posts) {
 }
 
 async function createPost(post) {
-    return apiFetch('/posts', {
-        method: 'POST',
-        body: JSON.stringify(post),
-    });
+    try {
+        const response = await fetch('/api/posts', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(post),
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to create post');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Create post error:', error);
+        throw error;
+    }
 }
 
 async function updatePost(postId, changes) {
-    return apiFetch(`/posts/${postId}`, {
-        method: 'PUT',
-        body: JSON.stringify(changes),
-    });
+    try {
+        const response = await fetch(`/api/posts/${postId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(changes),
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to update post');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Update post error:', error);
+        throw error;
+    }
 }
 
 function checkPasswordStrength(password) {
@@ -399,39 +446,131 @@ function validateSignupForm() {
 }
 
 function attachEventListeners() {
-    elements.showLogin.addEventListener('click', () => switchAuthTab('login'));
-    elements.showSignup.addEventListener('click', () => switchAuthTab('signup'));
-    elements.loginBtn.addEventListener('click', handleLogin);
-    elements.signupBtn.addEventListener('click', handleSignup);
+    console.log('🔧 Attaching event listeners...');
+    
+    elements.showLogin.addEventListener('click', () => {
+        console.log('📋 Show login clicked');
+        switchAuthTab('login');
+    });
+    
+    elements.showSignup.addEventListener('click', () => {
+        console.log('📋 Show signup clicked');
+        switchAuthTab('signup');
+    });
+    
+    elements.loginBtn.addEventListener('click', () => {
+        console.log('🔑 Login button clicked');
+        handleLogin();
+    });
+    
+    elements.signupBtn.addEventListener('click', () => {
+        console.log('👤 Signup button clicked');
+        handleSignup();
+    });
     if (elements.logoutBtn) {
-        elements.logoutBtn.addEventListener('click', handleLogout);
+        console.log('🚪 Adding logout listener');
+        elements.logoutBtn.addEventListener('click', () => {
+            console.log('🚪 Logout button clicked');
+            handleLogout();
+        });
     }
     if (elements.postDreamBtn) {
-        elements.postDreamBtn.addEventListener('click', createDream);
+        console.log('✏️ Adding post dream listener');
+        elements.postDreamBtn.addEventListener('click', () => {
+            console.log('✏️ Post dream button clicked');
+            createDream();
+        });
     }
     if (elements.dreamImage) {
-        elements.dreamImage.addEventListener('change', handleImageUpload);
+        console.log('🖼️ Adding image upload listener');
+        elements.dreamImage.addEventListener('change', (e) => {
+            console.log('🖼️ Image upload triggered', e.target.files.length);
+            handleImageUpload();
+        });
     }
     if (elements.removeImageBtn) {
-        elements.removeImageBtn.addEventListener('click', removeSelectedImage);
+        console.log('🗑️ Adding remove image listener');
+        elements.removeImageBtn.addEventListener('click', () => {
+            console.log('🗑️ Remove image clicked');
+            removeImagePreview();
+        });
     }
+    
+    // Feed filtering
     if (elements.feedSearch) {
-        elements.feedSearch.addEventListener('input', handleFeedSearch);
+        console.log('🔍 Adding feed search listener');
+        elements.feedSearch.addEventListener('input', debounce((e) => {
+            console.log('🔍 Feed search input:', e.target.value);
+            feedFilterQuery = e.target.value;
+            renderFeed();
+        }, 300));
     }
-    if (elements.feedMoodFilter) {
-        elements.feedMoodFilter.addEventListener('change', handleMoodFilter);
+    
+    // Feed filter tabs
+    console.log('🏷️ Adding feed tab listeners');
+    document.querySelectorAll('.feed-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            console.log('🏷️ Feed tab clicked:', tab.dataset.type);
+            document.querySelectorAll('.feed-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            feedFilterType = tab.dataset.type;
+            renderFeed();
+        });
+    });
+    
+    // Mobile menu event listeners
+    if (elements.mobileMenuBtn) {
+        console.log('📱 Adding mobile menu button listener');
+        elements.mobileMenuBtn.addEventListener('click', () => {
+            console.log('📱 Mobile menu button clicked');
+            openMobileMenu();
+        });
     }
-    if (elements.feedTypeFilter) {
-        elements.feedTypeFilter.addEventListener('change', handleTypeFilter);
+    
+    if (elements.closeMobileMenu) {
+        console.log('📱 Adding close mobile menu listener');
+        elements.closeMobileMenu.addEventListener('click', () => {
+            console.log('📱 Close mobile menu clicked');
+            closeMobileMenu();
+        });
     }
+    
+    // Enter App button (hides splash screen and shows main app)
     if (elements.enterAppBtn) {
-        elements.enterAppBtn.addEventListener('click', () => elements.splashScreen.classList.add('hidden'));
-    }
-    if (elements.editProfileBtn) {
-        elements.editProfileBtn.addEventListener('click', openProfileEdit);
-    }
-    if (elements.saveProfileBtn) {
-        elements.saveProfileBtn.addEventListener('click', saveProfileChanges);
+        console.log('🚪 Adding enter app button listener');
+        elements.enterAppBtn.addEventListener('click', () => {
+            console.log('🚪 Enter DreamPost button clicked');
+            
+            // Check if user is logged in
+            if (currentUser) {
+                console.log('🚪 User is logged in, showing main app');
+                // Hide splash screen
+                if (elements.splashScreen) {
+                    console.log('🚪 Hiding splash screen');
+                    elements.splashScreen.classList.add('hidden');
+                } else {
+                    console.log('❌ Splash screen element not found');
+                }
+                
+                // Show main app
+                const appShell = document.querySelector('.app-shell');
+                if (appShell) {
+                    console.log('🚪 Showing main app shell');
+                    appShell.style.display = 'block';
+                } else {
+                    console.log('❌ App shell element not found');
+                }
+                
+                // Render the app
+                console.log('🚪 Rendering main app');
+                renderApp();
+            } else {
+                console.log('❌ User not logged in, showing auth');
+                showToast('Please log in first');
+            }
+        });
+    } else {
+        console.log('❌ Enter app button not found');
     }
     if (elements.cancelProfileBtn) {
         elements.cancelProfileBtn.addEventListener('click', closeProfileEdit);
@@ -485,49 +624,53 @@ function attachEventListeners() {
     // Mobile menu overlay click to close
     const mobileMenuOverlay = document.querySelector('.mobile-menu-overlay');
     if (mobileMenuOverlay) {
-        mobileMenuOverlay.addEventListener('click', closeMobileMenu);
+        console.log('📱 Adding mobile menu overlay listener');
+        mobileMenuOverlay.addEventListener('click', () => {
+            console.log('📱 Mobile menu overlay clicked');
+            closeMobileMenu();
+        });
     }
     
     // Mobile menu item clicks
+    console.log('📱 Adding mobile menu item listeners');
     document.querySelectorAll('.mobile-menu-item').forEach(item => {
         item.addEventListener('click', (e) => {
             const action = e.currentTarget.dataset.action;
+            console.log('📱 Mobile menu item clicked:', action);
             handleMobileMenuAction(action);
         });
     });
     
-    // User dropdown toggle
-    const userAvatarBtn = document.getElementById('userAvatarBtn');
-    const userDropdown = document.getElementById('userDropdown');
+    // User dropdown
+    const userDropdown = document.querySelector('.user-dropdown');
+    const userDropdownBtn = document.querySelector('.user-dropdown-btn');
     
-    if (userAvatarBtn && userDropdown) {
-        userAvatarBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
+    if (userDropdownBtn) {
+        console.log('👤 Adding user dropdown button listener');
+        userDropdownBtn.addEventListener('click', () => {
+            console.log('👤 User dropdown button clicked');
             userDropdown.classList.toggle('active');
-        });
-        
-        // Close dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!userDropdown.contains(e.target) && !userAvatarBtn.contains(e.target)) {
-                userDropdown.classList.remove('active');
-            }
         });
     }
     
-    // User dropdown actions
+    // Dropdown item clicks
+    console.log('👤 Adding dropdown item listeners');
     document.querySelectorAll('.dropdown-item').forEach(item => {
         item.addEventListener('click', (e) => {
             const action = e.currentTarget.dataset.action;
+            console.log('👤 Dropdown item clicked:', action);
             handleUserDropdownAction(action);
             userDropdown.classList.remove('active');
         });
     });
     
     // Sidebar navigation items
+    console.log('🧭 Adding sidebar navigation listeners');
     document.querySelectorAll('.sidebar-nav-item').forEach(item => {
         item.addEventListener('click', () => {
             const view = item.dataset.view;
             const action = item.dataset.action;
+            console.log('🧭 Sidebar nav clicked:', { view, action });
             
             if (view) {
                 changeView(view);
@@ -569,6 +712,7 @@ async function init() {
     initSecurityFeatures();
     initModalTabs();
     initModalOverlay();
+    renderWhatsAppStories();
     
     const activeEmail = storage.getSession();
     if (activeEmail) {
@@ -695,74 +839,89 @@ function handleLogout() {
     renderApp();
 }
 
-// Mobile Menu Functions
+// Mobile menu functions
 function openMobileMenu() {
-    if (elements.mobileMenu) {
-        elements.mobileMenu.classList.add('active');
-        document.body.style.overflow = 'hidden';
+    console.log('📱 Opening mobile menu');
+    const mobileMenu = document.getElementById('mobileMenu');
+    if (mobileMenu) {
+        console.log('📱 Mobile menu element found, adding active class');
+        mobileMenu.classList.add('active');
+    } else {
+        console.log('❌ Mobile menu element not found');
     }
 }
 
 function closeMobileMenu() {
-    if (elements.mobileMenu) {
-        elements.mobileMenu.classList.remove('active');
-        document.body.style.overflow = '';
+    console.log('📱 Closing mobile menu');
+    const mobileMenu = document.getElementById('mobileMenu');
+    if (mobileMenu) {
+        console.log('📱 Mobile menu element found, removing active class');
+        mobileMenu.classList.remove('active');
+    } else {
+        console.log('❌ Mobile menu element not found');
+    }
+}
+
+function handleSidebarAction(action) {
+    console.log('🧭 Sidebar action:', action);
+    switch (action) {
+        case 'profile':
+            console.log('🧭 Navigating to profile from sidebar');
+            changeView('profile');
+            break;
+        case 'settings':
+            console.log('🧭 Navigating to settings from sidebar');
+            changeView('settings');
+            break;
+        default:
+            console.log('❌ Unknown sidebar action:', action);
+    }
+}
+
+function handleUserDropdownAction(action) {
+    console.log('👤 User dropdown action:', action);
+    switch (action) {
+        case 'profile':
+            console.log('👤 Navigating to profile from dropdown');
+            changeView('profile');
+            break;
+        case 'settings':
+            console.log('👤 Navigating to settings from dropdown');
+            changeView('settings');
+            break;
+        case 'analytics':
+            console.log('👤 Navigating to analytics from dropdown');
+            changeView('analytics');
+            break;
+        case 'logout':
+            console.log('👤 Logging out from dropdown');
+            handleLogout();
+            break;
+        default:
+            console.log('❌ Unknown dropdown action:', action);
     }
 }
 
 function handleMobileMenuAction(action) {
-    closeMobileMenu();
-    
+    console.log('📱 Mobile menu action:', action);
     switch (action) {
         case 'profile':
-            openModal('profileModal');
+            console.log('📱 Navigating to profile from mobile menu');
+            changeView('profile');
+            closeMobileMenu();
             break;
         case 'settings':
-            openModal('settingsModal');
+            console.log('📱 Navigating to settings from mobile menu');
+            changeView('settings');
+            closeMobileMenu();
             break;
         case 'logout':
-            if (confirm('Are you sure you want to logout?')) {
-                handleLogout();
-            }
+            console.log('📱 Logging out from mobile menu');
+            handleLogout();
+            closeMobileMenu();
             break;
         default:
-            console.log('Unknown mobile menu action:', action);
-    }
-}
-
-// User dropdown actions
-function handleUserDropdownAction(action) {
-    switch (action) {
-        case 'profile':
-            openModal('profileModal');
-            break;
-        case 'settings':
-            openModal('settingsModal');
-            break;
-        case 'analytics':
-            showToast('Analytics coming soon!');
-            break;
-        case 'logout':
-            if (confirm('Are you sure you want to logout?')) {
-                handleLogout();
-            }
-            break;
-        default:
-            console.log('Unknown dropdown action:', action);
-    }
-}
-
-// Sidebar actions
-function handleSidebarAction(action) {
-    switch (action) {
-        case 'profile':
-            openModal('profileModal');
-            break;
-        case 'settings':
-            openModal('settingsModal');
-            break;
-        default:
-            console.log('Unknown sidebar action:', action);
+            console.log('❌ Unknown mobile menu action:', action);
     }
 }
 
@@ -812,19 +971,15 @@ function updateUserInterface() {
     
     // Update header user avatar
     const headerUserAvatar = document.getElementById('headerUserAvatar');
-    const sidebarUserAvatar = document.getElementById('sidebarUserAvatar');
     const feedUserAvatar = document.getElementById('feedUserAvatar');
     
     if (headerUserAvatar) headerUserAvatar.textContent = initials;
-    if (sidebarUserAvatar) sidebarUserAvatar.textContent = initials;
     if (feedUserAvatar) feedUserAvatar.textContent = initials;
     
     // Update user names and handles
-    const sidebarUserName = document.getElementById('sidebarUserName');
     const dropdownUsername = document.getElementById('dropdownUsername');
     const dropdownEmail = document.getElementById('dropdownEmail');
     
-    if (sidebarUserName) sidebarUserName.textContent = userName;
     if (dropdownUsername) dropdownUsername.textContent = userName;
     if (dropdownEmail) dropdownEmail.textContent = userEmail;
     
@@ -1007,10 +1162,14 @@ async function toggleLike(postId) {
 }
 
 async function changeView(view) {
-    console.log('changeView called with:', view);
-    console.log('Current user:', !!currentUser);
+    console.log('🔄 ChangeView called with:', view);
+    console.log('🔄 Current user exists:', !!currentUser);
+    console.log('🔄 Current view before change:', currentView);
     
-    if (!currentUser) return showToast('Please log in first');
+    if (!currentUser) {
+        console.log('❌ No user logged in, showing toast');
+        return showToast('Please log in first');
+    }
     
     // Handle profile and settings as modals
     if (view === 'profile') {
@@ -1090,19 +1249,70 @@ async function renderApp() {
     document.querySelector('.fab').style.display = 'flex';
     
     // Update user information
-    elements.userName.textContent = currentUser.name;
-    elements.userEmail.textContent = currentUser.email;
-    elements.userAvatar.textContent = currentUser.name.slice(0, 2).toUpperCase();
-    elements.profileNameDisplay.textContent = currentUser.name;
-    elements.profileEmailDisplay.textContent = currentUser.email;
-    elements.profileBioDisplay.textContent = currentUser.bio || 'No bio yet';
-    elements.profileAvatarLarge.textContent = currentUser.name.slice(0, 2).toUpperCase();
+    console.log('👤 Updating user information elements');
+    if (elements.userName) {
+        console.log('👤 Updating userName element');
+        elements.userName.textContent = currentUser.name;
+    } else {
+        console.log('❌ userName element not found');
+    }
+    if (elements.userEmail) {
+        console.log('👤 Updating userEmail element');
+        elements.userEmail.textContent = currentUser.email;
+    } else {
+        console.log('❌ userEmail element not found');
+    }
+    if (elements.userAvatar) {
+        console.log('👤 Updating userAvatar element');
+        elements.userAvatar.textContent = currentUser.name.slice(0, 2).toUpperCase();
+    } else {
+        console.log('❌ userAvatar element not found');
+    }
+    if (elements.profileNameDisplay) {
+        console.log('👤 Updating profileNameDisplay element');
+        elements.profileNameDisplay.textContent = currentUser.name;
+    } else {
+        console.log('❌ profileNameDisplay element not found');
+    }
+    if (elements.profileEmailDisplay) {
+        console.log('👤 Updating profileEmailDisplay element');
+        elements.profileEmailDisplay.textContent = currentUser.email;
+    } else {
+        console.log('❌ profileEmailDisplay element not found');
+    }
+    if (elements.profileBioDisplay) {
+        console.log('👤 Updating profileBioDisplay element');
+        elements.profileBioDisplay.textContent = currentUser.bio || 'No bio yet';
+    } else {
+        console.log('❌ profileBioDisplay element not found');
+    }
+    if (elements.profileAvatarLarge) {
+        console.log('👤 Updating profileAvatarLarge element');
+        elements.profileAvatarLarge.textContent = currentUser.name.slice(0, 2).toUpperCase();
+    } else {
+        console.log('❌ profileAvatarLarge element not found');
+    }
+    
+    // Update AI Assistant elements
+    console.log('🤖 Updating AI assistant elements');
+    if (elements.aiName) {
+        console.log('🤖 Updating AI name element');
+        elements.aiName.textContent = 'Dream AI';
+    } else {
+        console.log('❌ AI name element not found');
+    }
+    if (elements.aiStatus) {
+        console.log('🤖 Updating AI status element');
+        elements.aiStatus.textContent = currentUser ? 'Ready to help' : 'Login to use AI';
+    } else {
+        console.log('❌ AI status element not found');
+    }
     
     // Handle profile images
-    if (currentUser.coverImage) {
+    if (currentUser.coverImage && elements.profileCover) {
         elements.profileCover.style.backgroundImage = `url('${currentUser.coverImage}')`;
     }
-    if (currentUser.profileImage) {
+    if (currentUser.profileImage && elements.profileAvatarLarge) {
         elements.profileAvatarLarge.style.backgroundImage = `url('${currentUser.profileImage}')`;
         elements.profileAvatarLarge.textContent = '';
     }
@@ -1127,19 +1337,88 @@ async function renderApp() {
 }
 
 async function renderStats() {
-    const posts = (await getPosts()).filter(post => post.authorEmail === currentUser.email);
-    elements.dreamCount.textContent = posts.length;
-    elements.profileDreams.textContent = posts.length;
-    const likes = posts.reduce((sum, post) => sum + post.likes, 0);
-    elements.profileLikes.textContent = likes;
-    elements.streakCount.textContent = computeStreak(posts);
-    updateDashboardStats(posts, likes);
+    console.log('📊 renderStats called');
+    console.log('📊 Current user email:', currentUser.email);
+    
+    try {
+        const posts = (await getPosts()).filter(post => post.authorEmail === currentUser.email);
+        console.log('📊 User posts found:', posts.length);
+        
+        // Update dream count with null safety
+        if (elements.dreamCount) {
+            console.log('📊 Updating dreamCount element');
+            elements.dreamCount.textContent = posts.length;
+        } else {
+            console.log('❌ dreamCount element not found');
+        }
+        
+        // Update profile dreams with null safety
+        if (elements.profileDreams) {
+            console.log('📊 Updating profileDreams element');
+            elements.profileDreams.textContent = posts.length;
+        } else {
+            console.log('❌ profileDreams element not found');
+        }
+        
+        const likes = posts.reduce((sum, post) => sum + (post.likes || 0), 0);
+        console.log('📊 Total likes calculated:', likes);
+        
+        // Update profile likes with null safety
+        if (elements.profileLikes) {
+            console.log('📊 Updating profileLikes element');
+            elements.profileLikes.textContent = likes;
+        } else {
+            console.log('❌ profileLikes element not found');
+        }
+        
+        const streak = computeStreak(posts);
+        console.log('📊 Streak calculated:', streak);
+        
+        // Update streak count with null safety
+        if (elements.streakCount) {
+            console.log('📊 Updating streakCount element');
+            elements.streakCount.textContent = streak;
+        } else {
+            console.log('❌ streakCount element not found');
+        }
+        
+        // Update dashboard stats
+        console.log('📊 Updating dashboard stats');
+        updateDashboardStats(posts, likes);
+        
+    } catch (error) {
+        console.error('❌ Error in renderStats:', error);
+        showToast('Error loading statistics');
+    }
 }
 
 function updateDashboardStats(posts, likes) {
-    const badges = computeBadges(posts, likes);
-    elements.profileBadgeCount.textContent = badges.length;
-    elements.badgesPanel.innerHTML = badges.length ? badges.map(name => `<span class="badge-pill">${name}</span>`).join('') : '<span class="badge-pill">No badges yet</span>';
+    console.log('📊 updateDashboardStats called');
+    
+    try {
+        const badges = computeBadges(posts, likes);
+        console.log('📊 Badges computed:', badges);
+        
+        // Update profile badge count with null safety
+        if (elements.profileBadgeCount) {
+            console.log('📊 Updating profileBadgeCount element');
+            elements.profileBadgeCount.textContent = badges.length;
+        } else {
+            console.log('❌ profileBadgeCount element not found');
+        }
+        
+        // Update badges panel with null safety
+        if (elements.badgesPanel) {
+            console.log('📊 Updating badgesPanel element');
+            elements.badgesPanel.innerHTML = badges.length ? badges.map(name => `<span class="badge-pill">${name}</span>`).join('') : '<span class="badge-pill">No badges yet</span>';
+        } else {
+            console.log('❌ badgesPanel element not found');
+        }
+        
+    } catch (error) {
+        console.error('❌ Error in updateDashboardStats:', error);
+        showToast('Error updating dashboard stats');
+    }
 }
 
 function computeStreak(posts) {
@@ -1187,20 +1466,32 @@ function debounce(func, wait) {
 const debouncedRenderFeed = debounce(renderFeed, 300);
 
 async function renderFeed() {
+    console.log('renderFeed called');
+    
     // Prevent duplicate rendering
-    if (isRenderingFeed) return;
+    if (isRenderingFeed) {
+        console.log('Feed already rendering, skipping');
+        return;
+    }
     isRenderingFeed = true;
     
     try {
+        console.log('Starting feed rendering...');
         const search = feedFilterQuery.toLowerCase();
         const mood = feedFilterMood;
         const type = feedFilterType;
+        
+        console.log('Filter parameters:', { search, mood, type });
+        
         const posts = (await getPosts())
             .filter(post => post.public)
-            .filter(post => type === 'All' || post.contentType === type)
+            .filter(post => type === 'All' || (post.contentType && post.contentType === type) || (!post.contentType && type === 'dream'))
             .filter(post => mood === 'All' || post.mood === mood)
             .filter(post => !search || post.title.toLowerCase().includes(search) || post.text.toLowerCase().includes(search) || post.authorName.toLowerCase().includes(search) || (post.setting && post.setting.toLowerCase().includes(search)))
             .sort((a, b) => b.createdAt - a.createdAt);
+        
+        console.log('Filtered posts:', posts.length);
+        console.log('Feed list element:', elements.feedList);
         
         // Clear feed list first to prevent duplication
         if (elements.feedList) {
@@ -1208,10 +1499,17 @@ async function renderFeed() {
             
             // Use modern post rendering
             if (posts.length > 0) {
-                elements.feedList.innerHTML = posts.map(post => renderModernPost(post)).join('');
+                console.log('Rendering posts...');
+                const postsHTML = posts.map(post => renderModernPost(post)).join('');
+                console.log('Posts HTML generated, length:', postsHTML.length);
+                elements.feedList.innerHTML = postsHTML;
+                console.log('Feed updated with posts');
             } else {
+                console.log('No posts to display');
                 elements.feedList.innerHTML = '<p>No matching stories yet. Try a different filter.</p>';
             }
+        } else {
+            console.error('Feed list element not found!');
         }
         
         // Update user interface
@@ -1271,7 +1569,6 @@ function createPostCard(post) {
                 <button class="primary" onclick="toggleLike('${post.id}')">${liked ? '♥' : '♡'} ${post.likes}</button>
                 <button onclick="toggleBookmark('${post.id}')">${post.bookmarked ? '🔖' : '📖'} Bookmark</button>
                 <button onclick="showReactions('${post.id}')">😊 React</button>
-                <button onclick="shareToTwitter('${post.id}')">Twitter</button>
                 <button onclick="toggleComments('${post.id}')">Encourage (${commentCount})</button>
             </div>
             <div id="reactions-${post.id}" class="reactions-panel hidden">
@@ -1478,27 +1775,9 @@ async function submitComment(postId) {
     }
 }
 
-async function shareToTwitter(postId) {
-    const posts = await getPosts();
-    const post = posts.find(p => p.id === postId);
-    if (!post) return;
-    const text = encodeURIComponent(`${post.title || 'My dream'} — ${post.text.substring(0, 120)}...`);
-    const url = encodeURIComponent(`${window.location.origin}?shared=${post.id}`);
-    window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank');
-}
-
-async function shareToWhatsApp(postId) {
-    const posts = await getPosts();
-    const post = posts.find(p => p.id === postId);
-    if (!post) return;
-    const text = encodeURIComponent(`${post.title || 'My dream'} — ${post.text.substring(0, 120)}... ${window.location.origin}?shared=${post.id}`);
-    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
-}
-
 function copyPostLink(postId) {
-    navigator.clipboard.writeText(`${window.location.origin}?shared=${postId}`).then(() => {
-        showToast('Share link copied to clipboard');
-    }).catch(() => showToast('Unable to copy link'));
+    const url = `${window.location.origin}?shared=${postId}`;
+    navigator.clipboard.writeText(url).then(() => showToast('Link copied!')).catch(() => showToast('Unable to copy link'));
 }
 
 async function toggleBookmark(postId) {
@@ -1577,7 +1856,10 @@ function initSettings() {
         elements.updatePasswordBtn.addEventListener('click', handleUpdatePassword);
     }
     if (elements.updateProfileBtn) {
+        console.log('🔧 Adding event listener to updateProfileBtn');
         elements.updateProfileBtn.addEventListener('click', handleUpdateProfile);
+    } else {
+        console.log('❌ updateProfileBtn element not found!');
     }
     if (elements.exportDataBtn) {
         elements.exportDataBtn.addEventListener('click', handleExportData);
@@ -1691,25 +1973,54 @@ function handleUpdatePassword() {
     elements.confirmNewPassword.value = '';
 }
 
-function handleUpdateProfile() {
-    const name = elements.settingsName.value.trim();
-    const bio = elements.settingsBio.value.trim();
-    const website = elements.settingsWebsite.value.trim();
-    const location = elements.settingsLocation.value.trim();
+async function handleUpdateProfile() {
+    console.log('👤 handleUpdateProfile function called!');
+    console.log('👤 Modal elements:', {
+        modalDisplayName: document.getElementById('modalDisplayName'),
+        modalBio: document.getElementById('modalBio'),
+        modalWebsite: document.getElementById('modalWebsite'),
+        modalLocation: document.getElementById('modalLocation')
+    });
+    
+    const name = document.getElementById('modalDisplayName')?.value?.trim() || '';
+    const bio = document.getElementById('modalBio')?.value?.trim() || '';
+    const website = document.getElementById('modalWebsite')?.value?.trim() || '';
+    const location = document.getElementById('modalLocation')?.value?.trim() || '';
+
+    console.log('👤 Form values:', { name, bio, website, location });
 
     if (!name) {
+        console.log('❌ No name provided');
         return showToast('Please enter a display name');
     }
 
-    // Update user profile
-    currentUser.name = name;
-    currentUser.bio = bio;
-    currentUser.website = website;
-    currentUser.location = location;
+    try {
+        // Update current user object immediately
+        currentUser.name = name;
+        currentUser.bio = bio;
+        currentUser.website = website;
+        currentUser.location = location;
 
-    // Update UI
-    renderProfile();
-    showToast('Profile updated successfully!');
+        // Update all UI elements instantly
+        updateProfileInfoUI();
+
+        // Save to database immediately using existing function
+        await saveProfileInfoToDatabase({ name, bio, website, location });
+
+        // Update all profile-related UI elements
+        await updateAllProfileElements();
+
+        // Update modal-specific UI
+        await updateModalProfile();
+        updateNavProfileInfo();
+
+        console.log('✅ Settings profile updated and saved successfully');
+        showToast('Profile updated and saved instantly!');
+
+    } catch (error) {
+        console.error('❌ Error updating settings profile:', error);
+        showToast('Failed to update profile');
+    }
 }
 
 function handleExportData() {
@@ -2525,7 +2836,7 @@ function closeAllModals() {
     document.body.style.overflow = '';
 }
 
-function updateModalProfile() {
+async function updateModalProfile() {
     if (currentUser) {
         // Update profile modal with user data
         const modalProfileNameDisplay = document.getElementById('modalProfileNameDisplay');
@@ -2545,26 +2856,43 @@ function updateModalProfile() {
             modalProfileAvatarLarge.textContent = initials || 'DP';
         }
         
-        // Update stats
-        const userPosts = posts.filter(post => post.authorEmail === currentUser.email);
-        const totalLikes = userPosts.reduce((sum, post) => sum + post.likes, 0);
-        
-        if (modalProfileDreams) modalProfileDreams.textContent = userPosts.length;
-        if (modalProfileLikes) modalProfileLikes.textContent = totalLikes;
-        if (modalProfileBadgeCount) modalProfileBadgeCount.textContent = currentUser.badges?.length || 0;
+        // Update stats - fetch posts data first
+        try {
+            const posts = await getPosts();
+            const userPosts = posts.filter(post => post.authorEmail === currentUser.email);
+            const totalLikes = userPosts.reduce((sum, post) => sum + post.likes, 0);
+            
+            if (modalProfileDreams) modalProfileDreams.textContent = userPosts.length;
+            if (modalProfileLikes) modalProfileLikes.textContent = totalLikes;
+            if (modalProfileBadgeCount) modalProfileBadgeCount.textContent = currentUser.badges?.length || 0;
+        } catch (error) {
+            console.error('❌ Error updating modal profile stats:', error);
+            // Set default values if posts fetch fails
+            if (modalProfileDreams) modalProfileDreams.textContent = '0';
+            if (modalProfileLikes) modalProfileLikes.textContent = '0';
+            if (modalProfileBadgeCount) modalProfileBadgeCount.textContent = '0';
+        }
     }
 }
 
 function updateModalSettings() {
     if (currentUser) {
-        // Update settings modal with user data
+        // Update settings modal form with current user data
+        console.log('🔧 Populating settings modal form with user data');
+        
         const modalDisplayName = document.getElementById('modalDisplayName');
-        const modalEmail = document.getElementById('modalEmail');
         const modalBio = document.getElementById('modalBio');
+        const modalWebsite = document.getElementById('modalWebsite');
+        const modalLocation = document.getElementById('modalLocation');
+        const modalEmail = document.getElementById('modalEmail');
         
         if (modalDisplayName) modalDisplayName.value = currentUser.name || '';
-        if (modalEmail) modalEmail.value = currentUser.email || '';
         if (modalBio) modalBio.value = currentUser.bio || '';
+        if (modalWebsite) modalWebsite.value = currentUser.website || '';
+        if (modalLocation) modalLocation.value = currentUser.location || '';
+        if (modalEmail) modalEmail.value = currentUser.email || '';
+        
+        console.log('✅ Settings modal form populated with user data');
     }
 }
 
@@ -2587,25 +2915,212 @@ function toggleModalProfileEdit() {
     }
 }
 
-function saveModalProfile() {
+// Helper function to update navigation profile information
+function updateNavProfileInfo() {
+    console.log('👤 Updating navigation profile information');
+    
+    if (!currentUser) {
+        console.log('❌ No current user to update');
+        return;
+    }
+    
+    // Update dropdown username
+    const dropdownUsername = document.getElementById('dropdownUsername');
+    if (dropdownUsername) {
+        dropdownUsername.textContent = currentUser.name;
+        console.log('👤 Updated dropdown username');
+    }
+    
+    // Update dropdown user avatar
+    const dropdownUserAvatar = document.querySelector('.user-dropdown-btn .user-avatar');
+    if (dropdownUserAvatar) {
+        if (currentUser.profileImage) {
+            dropdownUserAvatar.style.backgroundImage = `url('${currentUser.profileImage}')`;
+            dropdownUserAvatar.textContent = '';
+        } else {
+            dropdownUserAvatar.style.backgroundImage = '';
+            dropdownUserAvatar.textContent = currentUser.name.slice(0, 2).toUpperCase();
+        }
+        console.log('👤 Updated dropdown user avatar');
+    }
+    
+    // Update any other navigation profile elements
+    const navUserName = document.querySelector('.nav-user-name');
+    if (navUserName) {
+        navUserName.textContent = currentUser.name;
+        console.log('👤 Updated nav user name');
+    }
+    
+    console.log('✅ Navigation profile information updated');
+}
+
+// Helper function to update profile information UI instantly
+function updateProfileInfoUI() {
+    console.log('👤 Updating profile information UI elements');
+    
+    if (!currentUser) {
+        console.log('❌ No current user to update');
+        return;
+    }
+    
+    // Update user name in all locations
+    const userNameElements = [
+        document.getElementById('userName'),
+        document.getElementById('sidebarUserName'),
+        document.getElementById('profileNameDisplay'),
+        document.getElementById('dropdownUsername')
+    ];
+    
+    userNameElements.forEach(element => {
+        if (element) {
+            element.textContent = currentUser.name;
+            console.log('👤 Updated user name element');
+        }
+    });
+    
+    // Update user avatars with new initials
+    const initials = currentUser.name.slice(0, 2).toUpperCase();
+    const avatarElements = [
+        document.getElementById('userAvatar'),
+        document.getElementById('profileAvatarLarge'),
+        document.getElementById('feedUserAvatar')
+    ];
+    
+    avatarElements.forEach(element => {
+        if (element && !currentUser.profileImage) {
+            element.textContent = initials;
+            console.log('👤 Updated avatar with initials');
+        }
+    });
+    
+    // Update bio
+    const bioElements = [
+        document.getElementById('profileBioDisplay'),
+        document.getElementById('modalBioDisplay')
+    ];
+    
+    bioElements.forEach(element => {
+        if (element) {
+            element.textContent = currentUser.bio || 'No bio yet';
+            console.log('👤 Updated bio element');
+        }
+    });
+    
+    console.log('✅ Profile information UI updated instantly');
+}
+
+// Helper function to save profile information to database
+async function saveProfileInfoToDatabase(profileData) {
+    console.log('💾 Saving profile information to database');
+    
+    try {
+        const response = await fetch('/api/users/profile-info', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                email: currentUser.email,
+                ...profileData
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('💾 Profile information saved to database:', result);
+        
+    } catch (error) {
+        console.error('❌ Error saving profile information to database:', error);
+        throw error;
+    }
+}
+
+// Helper function to update all profile-related elements
+async function updateAllProfileElements() {
+    console.log('🔄 Updating all profile elements');
+    
+    // Update user information across all UI components
+    if (currentUser) {
+        // Call renderApp to update all user-related UI
+        await renderApp();
+        
+        // Update any posts that belong to this user
+        await updateUserPosts();
+    }
+}
+
+// Helper function to update user posts with new profile information
+async function updateUserPosts() {
+    console.log('📝 Updating user posts with new profile information');
+    
+    try {
+        const posts = await getPosts();
+        const userPosts = posts.filter(post => post.authorEmail === currentUser.email);
+        
+        // Update posts in the UI (if needed)
+        if (userPosts.length > 0) {
+            console.log(`📝 Updating ${userPosts.length} user posts`);
+            // Re-render feed to show updated profile information
+            await renderFeed();
+        }
+        
+    } catch (error) {
+        console.error('❌ Error updating user posts:', error);
+    }
+}
+
+async function saveModalProfile() {
+    console.log('👤 Saving modal profile');
+    
     const modalEditName = document.getElementById('modalEditName');
     const modalEditBio = document.getElementById('modalEditBio');
     
     if (modalEditName && modalEditBio && currentUser) {
-        currentUser.name = modalEditName.value.trim();
-        currentUser.bio = modalEditBio.value.trim();
+        const name = modalEditName.value.trim();
+        const bio = modalEditBio.value.trim();
         
-        // Update user in storage
-        updateUser(currentUser);
+        if (!name) {
+            console.log('❌ Name validation failed in modal');
+            showToast('Please enter a display name');
+            return;
+        }
         
-        // Update UI
-        updateModalProfile();
-        updateNavProfileInfo();
-        
-        // Close edit form
-        toggleModalProfileEdit();
-        
-        showToast('Profile updated successfully!');
+        try {
+            console.log('👤 Updating profile from modal:', { name, bio });
+
+            // Update current user object immediately
+            currentUser.name = name;
+            currentUser.bio = bio;
+
+            // Update all UI elements instantly
+            updateProfileInfoUI();
+
+            // Save to database immediately using existing function
+            await saveProfileInfoToDatabase({ name, bio, website: currentUser.website, location: currentUser.location });
+
+            // Update all profile-related UI elements
+            await updateAllProfileElements();
+
+            // Update modal-specific UI
+            await updateModalProfile();
+            updateNavProfileInfo();
+
+            // Close edit form
+            toggleModalProfileEdit();
+
+            console.log('✅ Modal profile updated and saved successfully');
+            showToast('Profile updated and saved instantly!');
+
+        } catch (error) {
+            console.error('❌ Error updating modal profile:', error);
+            showToast('Failed to update profile');
+        }
+    } else {
+        console.log('❌ Modal elements or current user not found');
+        showToast('Unable to update profile');
     }
 }
 
@@ -2706,11 +3221,27 @@ async function handleProfilePictureUpload(event) {
     const reader = new FileReader();
     reader.onload = () => {
         currentUser.profileImage = reader.result;
-        elements.profileAvatarLarge.style.backgroundImage = `url('${reader.result}')`;
-        elements.profileAvatarLarge.textContent = '';
-        showToast('Profile picture updated!');
+        if (elements.aiAvatar) {
+            console.log('🤖 AI assistant uses fixed icon, no image update needed');
+        };
     };
     reader.readAsDataURL(file);
+}
+
+// AI Chat functionality
+function openAIChat() {
+    console.log('🤖 Opening AI chat');
+    
+    // Check if user is logged in
+    if (!currentUser) {
+        console.log('❌ User not logged in, cannot use AI chat');
+        showToast('Please log in to use AI assistant');
+        return;
+    }
+    
+    // For now, show a placeholder message
+    showToast('AI Chat coming soon! 🤖');
+    console.log('🤖 AI chat placeholder - full implementation coming later');
 }
 
 init();

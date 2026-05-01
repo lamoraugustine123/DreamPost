@@ -80,21 +80,7 @@
                     <div class="logo">DreamPost</div>
                 </div>
                 <div class="quick-actions">
-                    <button class="quick-action-btn facebook" title="Facebook">
-                        <span>f</span>
-                    </button>
-                    <button class="quick-action-btn instagram" title="Instagram">
-                        <span>ig</span>
-                    </button>
-                    <button class="quick-action-btn twitter" title="Twitter">
-                        <span>t</span>
-                    </button>
-                    <button class="quick-action-btn whatsapp" title="WhatsApp">
-                        <span>w</span>
-                    </button>
-                    <button class="quick-action-btn telegram" title="Telegram">
-                        <span>tg</span>
-                    </button>
+                    <!-- Social media buttons removed for cleaner app experience -->
                 </div>
             </div>
             
@@ -161,13 +147,15 @@
             <!-- Left Sidebar -->
             <aside class="modern-sidebar left-sidebar">
                 <div class="sidebar-section">
-                    <div class="user-profile-card">
-                        <div class="user-avatar-large" id="sidebarUserAvatar">DP</div>
-                        <div class="user-info">
-                            <div class="user-name" id="sidebarUserName">Guest</div>
-                            <div class="user-handle">@username</div>
+                    <div class="ai-assistant-card">
+                        <div class="ai-avatar-large">
+                            <span class="ai-icon">🤖</span>
                         </div>
-                        <button class="edit-profile-btn" data-action="profile">Edit Profile</button>
+                        <div class="ai-info">
+                            <div class="ai-name">Dream AI ChatBOT  </div>
+                            <div class="ai-status">Ready to help</div>
+                        </div>
+                        <button class="ai-chat-btn" onclick="openAIChat()">Chat with AI</button>
                     </div>
                 </div>
                 
@@ -237,7 +225,7 @@
             <!-- Main Content Area -->
             <section class="modern-content">
                 <!-- Modern Feed View -->
-                <div id="feedView" class="modern-feed hidden">
+                <div id="feedView" class="modern-feed">
                     <!-- Create Post Card -->
                     <div class="create-post-card">
                         <div class="create-post-header">
@@ -265,23 +253,45 @@
 
                     <!-- Feed Stories -->
                     <div class="stories-section">
-                        <h3 class="section-title">Stories</h3>
+                        <h3 class="section-title">Status Updates</h3>
                         <div class="stories-container">
                             <div class="story-item">
-                                <div class="story-avatar">+</div>
-                                <span class="story-text">Add Story</span>
+                                <div class="whatsapp-story-card">
+                                    <div class="story-add">
+                                        <div class="story-add-icon">+</div>
+                                        <div class="story-add-text">My status</div>
+                                    </div>
+                                </div>
                             </div>
                             <div class="story-item">
-                                <div class="story-avatar" style="background: linear-gradient(45deg, #ff6b6b, #ffd93d);">JD</div>
-                                <span class="story-text">John</span>
+                                <div class="whatsapp-story-card">
+                                    <div class="story-avatar" style="background: var(--gradient-whatsapp);">JD</div>
+                                    <div class="story-info">
+                                        <div class="story-name">John</div>
+                                        <div class="story-time">2 hours ago</div>
+                                    </div>
+                                    <div class="story-status-text">Just finished an amazing dream! Flying over mountains was incredible! #DreamBig</div>
+                                </div>
                             </div>
                             <div class="story-item">
-                                <div class="story-avatar" style="background: linear-gradient(45deg, #6bcf7f, #2e7d32);">SM</div>
-                                <span class="story-text">Sarah</span>
+                                <div class="whatsapp-story-card">
+                                    <div class="story-avatar" style="background: var(--gradient-whatsapp);">SM</div>
+                                    <div class="story-info">
+                                        <div class="story-name">Sarah</div>
+                                        <div class="story-time">5 hours ago</div>
+                                    </div>
+                                    <div class="story-status-text">Peaceful dream about a serene garden with glowing flowers. So calming! #Peaceful</div>
+                                </div>
                             </div>
                             <div class="story-item">
-                                <div class="story-avatar" style="background: linear-gradient(45deg, #4a90e2, #7b68ee);">MK</div>
-                                <span class="story-text">Mike</span>
+                                <div class="whatsapp-story-card">
+                                    <div class="story-avatar" style="background: var(--gradient-whatsapp);">MK</div>
+                                    <div class="story-info">
+                                        <div class="story-name">Mike</div>
+                                        <div class="story-time">1 day ago</div>
+                                    </div>
+                                    <div class="story-status-text">Exploring an ancient library with books that wrote themselves. Each page told a new story! #Mystery</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -871,10 +881,10 @@
                                 <button class="suggestion-btn">Follow</button>
                             </div>
                             <div class="suggestion-item">
-                                <div class="suggestion-avatar" style="background: var(--gradient-twitter);">CW</div>
+                                <div class="suggestion-avatar" style="background: var(--gradient-primary);">CW</div>
                                 <div class="suggestion-info">
                                     <div class="suggestion-name">Carol Wilson</div>
-                                    <div class="suggestion-handle">@carol_tweets</div>
+                                    <div class="suggestion-handle">@carol_dreams</div>
                                 </div>
                                 <button class="suggestion-btn">Follow</button>
                             </div>
@@ -937,7 +947,7 @@
                                 </div>
                             </div>
                             <div class="activity-item">
-                                <div class="activity-avatar" style="background: var(--gradient-twitter);">EW</div>
+                                <div class="activity-avatar" style="background: var(--gradient-primary);">EW</div>
                                 <div class="activity-content">
                                     <div class="activity-text">Emma shared your story</div>
                                     <div class="activity-time">3 hours ago</div>
@@ -1058,7 +1068,9 @@
                     <label>Display Name<input id="modalDisplayName" type="text" placeholder="Your name"></label>
                     <label>Email<input id="modalEmail" type="email" placeholder="you@example.com" readonly></label>
                     <label>Bio<textarea id="modalBio" rows="3" placeholder="Tell us about your dreams..."></textarea>
-                    <button class="primary-btn">Update Profile</button>
+                    <label>Website<input id="modalWebsite" type="url" placeholder="https://yourwebsite.com"></label>
+                    <label>Location<input id="modalLocation" type="text" placeholder="City, Country"></label>
+                    <button id="updateProfileBtn" class="primary-btn" onclick="handleUpdateProfile()">Update Profile</button>
                 </div>
                 <div class="settings-section">
                     <h3>🔑 Password</h3>
