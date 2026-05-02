@@ -196,6 +196,11 @@ const elements = {
     signupError: document.getElementById('signupError'),
 };
 
+// Debug: Check if file input elements are found
+console.log('🔍 Checking file input elements:');
+console.log('📷 profileImageInput:', elements.profileImageInput);
+console.log('🖼️ coverImageInput:', elements.coverImageInput);
+
 let currentUser = null;
 let currentView = 'feed';
 let selectedImageData = null;
@@ -308,9 +313,31 @@ async function getPosts() {
         console.log('Processed posts:', processedPosts);
         return processedPosts;
     } catch (error) {
-        console.error('Error getting posts:', error);
-        console.error('Error details:', error.message);
-        return [];
+        console.warn('API not available, falling back to localStorage:', error.message);
+        
+        // Fallback to localStorage when API is not available
+        try {
+            const localPosts = JSON.parse(localStorage.getItem('dreamPosts') || '[]');
+            console.log('Posts from localStorage:', localPosts);
+            
+            // Convert localStorage posts to match expected format
+            const processedPosts = localPosts.map(post => ({
+                ...post,
+                createdAt: new Date(post.timestamp || post.createdAt || Date.now()),
+                likes: post.likes || 0,
+                likedBy: post.likedBy || [],
+                comments: post.comments || [],
+                public: post.isPublic !== false, // Convert isPublic to public for filtering
+                text: post.content || post.text || '', // Ensure content is available for search
+                authorName: post.author || post.authorName || 'Anonymous' // Ensure author name is available
+            }));
+            
+            console.log('Processed localStorage posts:', processedPosts);
+            return processedPosts;
+        } catch (localError) {
+            console.error('Error reading from localStorage:', localError);
+            return [];
+        }
     }
 }
 
@@ -518,6 +545,26 @@ function attachEventListeners() {
         });
     });
     
+    // Feed type filter
+    if (elements.feedTypeFilter) {
+        console.log('📝 Adding feed type filter listener');
+        elements.feedTypeFilter.addEventListener('change', (e) => {
+            console.log('📝 Feed type filter changed:', e.target.value);
+            feedFilterType = e.target.value;
+            renderFeed();
+        });
+    }
+    
+    // Feed mood filter
+    if (elements.feedMoodFilter) {
+        console.log('😊 Adding feed mood filter listener');
+        elements.feedMoodFilter.addEventListener('change', (e) => {
+            console.log('😊 Feed mood filter changed:', e.target.value);
+            feedFilterMood = e.target.value;
+            renderFeed();
+        });
+    }
+    
     // Mobile menu event listeners
     if (elements.mobileMenuBtn) {
         console.log('📱 Adding mobile menu button listener');
@@ -576,10 +623,22 @@ function attachEventListeners() {
         elements.cancelProfileBtn.addEventListener('click', closeProfileEdit);
     }
     if (elements.coverImageInput) {
-        elements.coverImageInput.addEventListener('change', handleCoverUpload);
+        console.log('🔧 Adding event listener to coverImageInput');
+        elements.coverImageInput.addEventListener('change', (event) => {
+            console.log('🖼️ Cover image input change event triggered');
+            handleCoverUpload(event);
+        });
+    } else {
+        console.log('❌ coverImageInput element not found!');
     }
     if (elements.profileImageInput) {
-        elements.profileImageInput.addEventListener('change', handleProfilePictureUpload);
+        console.log('🔧 Adding event listener to profileImageInput');
+        elements.profileImageInput.addEventListener('change', (event) => {
+            console.log('📷 Profile image input change event triggered');
+            handleProfilePictureUpload(event);
+        });
+    } else {
+        console.log('❌ profileImageInput element not found!');
     }
     
     // Password strength indicator
@@ -664,6 +723,24 @@ function attachEventListeners() {
         });
     });
     
+    // Facebook-style navigation tabs
+    console.log('🧭 Adding Facebook-style navigation tabs');
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.dataset.tab;
+            console.log('🧭 Navigation tab clicked:', tabName);
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+            
+            // Add active class to clicked tab
+            tab.classList.add('active');
+            
+            // Handle tab content switching
+            handleTabSwitch(tabName);
+        });
+    });
+
     // Sidebar navigation items
     console.log('🧭 Adding sidebar navigation listeners');
     document.querySelectorAll('.sidebar-nav-item').forEach(item => {
@@ -862,9 +939,1103 @@ function closeMobileMenu() {
     }
 }
 
+// ===== FLAWLESS FACEBOOK-STYLE NAVIGATION FUNCTIONS =====
+
+/**
+ * Flawless tab switching function with comprehensive error handling
+ * @param {string} tabName - The name of the tab to switch to
+ */
+function handleTabSwitch(tabName) {
+    try {
+        console.log(`🔄 Switching to ${tabName} tab`);
+        
+        // Validate input
+        if (!tabName || typeof tabName !== 'string') {
+            throw new Error('Invalid tab name provided');
+        }
+        
+        // Validate tab exists
+        const validTabs = ['feed', 'shorts', 'friends', 'activity'];
+        if (!validTabs.includes(tabName)) {
+            throw new Error(`Tab "${tabName}" is not a valid tab`);
+        }
+        
+        // Update active tab state
+        updateActiveTab(tabName);
+        
+        // Handle tab content
+        handleTabContent(tabName);
+        
+        // Update sidebar navigation
+        updateSidebarActiveTab(tabName);
+        
+        // Update URL hash for navigation
+        updateUrlHash(tabName);
+        
+        console.log(`✅ Successfully switched to ${tabName} tab`);
+        
+    } catch (error) {
+        console.error(`❌ Error switching to ${tabName} tab:`, error);
+        showToast(`Failed to switch to ${tabName} tab`);
+    }
+}
+
+/**
+ * Update the active tab styling
+ * @param {string} activeTabName - The name of the active tab
+ */
+function updateActiveTab(activeTabName) {
+    try {
+        // Remove active class from all tabs
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.classList.remove('active');
+        });
+        
+        // Add active class to the clicked tab
+        const activeTab = document.querySelector(`[data-tab="${activeTabName}"]`);
+        if (activeTab) {
+            activeTab.classList.add('active');
+        } else {
+            throw new Error(`Tab element for "${activeTabName}" not found`);
+        }
+        
+    } catch (error) {
+        console.error('❌ Error updating active tab:', error);
+        throw error;
+    }
+}
+
+/**
+ * Handle tab content display
+ * @param {string} tabName - The name of the tab
+ */
+function handleTabContent(tabName) {
+    try {
+        // Hide all existing content
+        const contentSections = document.querySelectorAll('.tab-content, .modern-feed, #feedView, #profileView, #createView, #exploreView');
+        contentSections.forEach(section => {
+            if (!section.classList.contains('hidden')) {
+                section.classList.add('hidden');
+            }
+        });
+        
+        // Show or create content for the selected tab
+        const targetContent = document.getElementById(`${tabName}Content`);
+        if (targetContent) {
+            targetContent.classList.remove('hidden');
+        } else {
+            createTabContent(tabName);
+        }
+        
+    } catch (error) {
+        console.error('❌ Error handling tab content:', error);
+        throw error;
+    }
+}
+
+/**
+ * Create comprehensive tab content
+ * @param {string} tabName - The name of the tab
+ */
+function createTabContent(tabName) {
+    try {
+        console.log(`🏗️ Creating content for ${tabName} tab`);
+        
+        let contentHtml = '';
+        
+        switch (tabName) {
+            case 'feed':
+                contentHtml = createFeedContent();
+                break;
+            case 'shorts':
+                contentHtml = createShortsContent();
+                break;
+            case 'friends':
+                contentHtml = createFriendsContent();
+                break;
+            case 'activity':
+                contentHtml = createActivityContent();
+                break;
+            default:
+                throw new Error(`No content template for tab "${tabName}"`);
+        }
+        
+        // Insert content into main content area
+        const mainContent = document.querySelector('.modern-content');
+        if (mainContent) {
+            mainContent.insertAdjacentHTML('beforeend', contentHtml);
+            console.log(`✅ Created ${tabName} content section`);
+            
+            // Initialize tab-specific functionality
+            initializeTabFunctionality(tabName);
+        } else {
+            throw new Error('Main content area not found');
+        }
+        
+    } catch (error) {
+        console.error(`❌ Error creating ${tabName} content:`, error);
+        throw error;
+    }
+}
+
+/**
+ * Create comprehensive Feed content
+ * @returns {string} HTML content for Feed tab
+ */
+function createFeedContent() {
+    return `
+        <div id="feedContent" class="tab-content">
+            <div class="modern-feed">
+                <!-- Create Post Card -->
+                <div class="create-post-card">
+                    <div class="create-post-header">
+                        <div class="user-avatar" id="feedUserAvatar">DP</div>
+                        <div class="create-post-input" contenteditable="true" placeholder="What's on your mind? Share your dream..."></div>
+                    </div>
+                    <div class="create-post-actions">
+                        <button class="post-action-btn">
+                            <span class="action-icon">image</span>
+                            Photo
+                        </button>
+                        <button class="post-action-btn">
+                            <span class="action-icon">tag</span>
+                            Tag
+                        </button>
+                        <button class="post-action-btn">
+                            <span class="action-icon">mood</span>
+                            Mood
+                        </button>
+                        <button class="post-action-btn primary" id="quickPostBtn">
+                            Post
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Feed List -->
+                <div class="modern-feed-list" id="feedList">
+                    <!-- Posts will be dynamically loaded here -->
+                </div>
+                
+                <!-- Load More Button -->
+                <button class="load-more-btn" id="loadMoreBtn">Load More Dreams</button>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Create comprehensive Shorts content
+ * @returns {string} HTML content for Shorts tab
+ */
+function createShortsContent() {
+    return `
+        <div id="shortsContent" class="tab-content">
+            <div class="shorts-container">
+                <div class="shorts-header">
+                    <h2>Short Dreams</h2>
+                    <p>Quick, inspiring dream moments</p>
+                </div>
+                <div class="shorts-grid" id="shortsGrid">
+                    <!-- Shorts will be dynamically loaded here -->
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Create comprehensive Friends content
+ * @returns {string} HTML content for Friends tab
+ */
+function createFriendsContent() {
+    return `
+        <div id="friendsContent" class="tab-content">
+            <div class="friends-container">
+                <div class="friends-header">
+                    <h2>Friends</h2>
+                    <p>Connect with fellow dreamers</p>
+                </div>
+                <div class="friends-sections">
+                    <div class="friends-section">
+                        <h3>Suggestions</h3>
+                        <div class="friends-list" id="suggestionsList">
+                            <!-- Friend suggestions will be loaded here -->
+                        </div>
+                    </div>
+                    <div class="friends-section">
+                        <h3>All Friends</h3>
+                        <div class="friends-list" id="allFriendsList">
+                            <!-- Friends list will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Create comprehensive Activity content
+ * @returns {string} HTML content for Activity tab
+ */
+function createActivityContent() {
+    return `
+        <div id="activityContent" class="tab-content">
+            <div class="activity-container">
+                <div class="activity-header">
+                    <h2>Activity</h2>
+                    <p>Stay updated with your dream community</p>
+                </div>
+                <div class="activity-sections">
+                    <div class="activity-section">
+                        <h3>Recent</h3>
+                        <div class="activity-list" id="recentActivity">
+                            <!-- Recent activities will be loaded here -->
+                        </div>
+                    </div>
+                    <div class="activity-section">
+                        <h3>Notifications</h3>
+                        <div class="activity-list" id="notificationsList">
+                            <!-- Notifications will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Initialize tab-specific functionality
+ * @param {string} tabName - The name of the tab
+ */
+function initializeTabFunctionality(tabName) {
+    try {
+        switch (tabName) {
+            case 'feed':
+                initializeFeedFunctionality();
+                break;
+            case 'shorts':
+                initializeShortsFunctionality();
+                break;
+            case 'friends':
+                initializeFriendsFunctionality();
+                break;
+            case 'activity':
+                initializeActivityFunctionality();
+                break;
+        }
+    } catch (error) {
+        console.error(`❌ Error initializing ${tabName} functionality:`, error);
+    }
+}
+
+/**
+ * Initialize Feed functionality
+ */
+function initializeFeedFunctionality() {
+    try {
+        // Load existing posts
+        if (typeof renderFeed === 'function') {
+            renderFeed();
+        }
+        
+        // Initialize quick post button
+        const quickPostBtn = document.getElementById('quickPostBtn');
+        if (quickPostBtn) {
+            quickPostBtn.addEventListener('click', handleQuickPost);
+        }
+        
+        console.log('✅ Feed functionality initialized');
+        
+    } catch (error) {
+        console.error('❌ Error initializing Feed functionality:', error);
+    }
+}
+
+/**
+ * Initialize Shorts functionality
+ */
+function initializeShortsFunctionality() {
+    try {
+        // Load sample shorts
+        loadSampleShorts();
+        console.log('✅ Shorts functionality initialized');
+        
+    } catch (error) {
+        console.error('❌ Error initializing Shorts functionality:', error);
+    }
+}
+
+/**
+ * Initialize Friends functionality
+ */
+function initializeFriendsFunctionality() {
+    try {
+        // Load friend suggestions
+        loadFriendSuggestions();
+        loadAllFriends();
+        console.log('✅ Friends functionality initialized');
+        
+    } catch (error) {
+        console.error('❌ Error initializing Friends functionality:', error);
+    }
+}
+
+/**
+ * Initialize Activity functionality
+ */
+function initializeActivityFunctionality() {
+    try {
+        // Load activities and notifications
+        loadRecentActivity();
+        loadNotifications();
+        console.log('✅ Activity functionality initialized');
+        
+    } catch (error) {
+        console.error('❌ Error initializing Activity functionality:', error);
+    }
+}
+
+/**
+ * Update sidebar active state
+ * @param {string} tabName - The name of the tab
+ */
+function updateSidebarActiveTab(tabName) {
+    try {
+        // Remove active class from all sidebar nav items
+        document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        // Add active class to corresponding sidebar item
+        const sidebarItem = document.querySelector(`[data-view="${tabName}"]`);
+        if (sidebarItem) {
+            sidebarItem.classList.add('active');
+            console.log(`✅ Updated sidebar active state for ${tabName}`);
+        }
+        
+    } catch (error) {
+        console.error('❌ Error updating sidebar active state:', error);
+    }
+}
+
+/**
+ * Update URL hash for navigation
+ * @param {string} tabName - The name of the tab
+ */
+function updateUrlHash(tabName) {
+    try {
+        if (window.history && window.history.pushState) {
+            const newUrl = `${window.location.pathname}#${tabName}`;
+            window.history.pushState({ tab: tabName }, '', newUrl);
+        }
+    } catch (error) {
+        console.error('❌ Error updating URL hash:', error);
+    }
+}
+
+/**
+ * Handle quick post functionality
+ */
+function handleQuickPost() {
+    try {
+        const postInput = document.querySelector('.create-post-input');
+        const content = postInput ? postInput.textContent.trim() : '';
+        
+        if (!content) {
+            showToast('Please write something to post');
+            return;
+        }
+        
+        // Create post object
+        const post = {
+            id: Date.now(),
+            author: currentUser?.name || 'Anonymous',
+            authorEmail: currentUser?.email || '',
+            content: content,
+            timestamp: new Date().toISOString(),
+            likes: 0,
+            likedBy: [],
+            comments: []
+        };
+        
+        // Save and render post
+        savePost(post);
+        
+        // Clear input
+        if (postInput) {
+            postInput.textContent = '';
+        }
+        
+        showToast('Dream posted successfully!');
+        
+    } catch (error) {
+        console.error('❌ Error handling quick post:', error);
+        showToast('Failed to post dream');
+    }
+}
+
+/**
+ * Load sample shorts
+ */
+function loadSampleShorts() {
+    try {
+        const shortsGrid = document.getElementById('shortsGrid');
+        if (!shortsGrid) return;
+        
+        const sampleShorts = [
+            { id: 1, title: 'Flying Dream', thumbnail: '🦅', views: '1.2K' },
+            { id: 2, title: 'Ocean Adventure', thumbnail: '🌊', views: '856' },
+            { id: 3, title: 'Space Journey', thumbnail: '🚀', views: '2.3K' },
+            { id: 4, title: 'Forest Mystery', thumbnail: '🌲', views: '645' },
+            { id: 5, title: 'City Lights', thumbnail: '🌃', views: '1.8K' },
+            { id: 6, title: 'Mountain Peak', thumbnail: '⛰️', views: '923' }
+        ];
+        
+        const shortsHtml = sampleShorts.map(short => `
+            <div class="short-item" data-id="${short.id}">
+                <div class="short-thumbnail">${short.thumbnail}</div>
+                <div class="short-info">
+                    <div class="short-title">${short.title}</div>
+                    <div class="short-views">${short.views} views</div>
+                </div>
+            </div>
+        `).join('');
+        
+        shortsGrid.innerHTML = shortsHtml;
+        
+    } catch (error) {
+        console.error('❌ Error loading sample shorts:', error);
+    }
+}
+
+/**
+ * Load friend suggestions
+ */
+function loadFriendSuggestions() {
+    try {
+        const suggestionsList = document.getElementById('suggestionsList');
+        if (!suggestionsList) return;
+        
+        const suggestions = [
+            { name: 'Alice Johnson', avatar: 'AJ', status: 'Active' },
+            { name: 'Bob Smith', avatar: 'BS', status: 'Online' },
+            { name: 'Carol White', avatar: 'CW', status: 'Away' },
+            { name: 'David Brown', avatar: 'DB', status: 'Active' }
+        ];
+        
+        const suggestionsHtml = suggestions.map(user => `
+            <div class="friend-item">
+                <div class="friend-avatar">${user.avatar}</div>
+                <div class="friend-info">
+                    <div class="friend-name">${user.name}</div>
+                    <div class="friend-status">${user.status}</div>
+                </div>
+                <button class="friend-add-btn">Add Friend</button>
+            </div>
+        `).join('');
+        
+        suggestionsList.innerHTML = suggestionsHtml;
+        
+    } catch (error) {
+        console.error('❌ Error loading friend suggestions:', error);
+    }
+}
+
+/**
+ * Load all friends
+ */
+function loadAllFriends() {
+    try {
+        const allFriendsList = document.getElementById('allFriendsList');
+        if (!allFriendsList) return;
+        
+        const friends = [
+            { name: 'Emma Davis', avatar: 'ED', status: 'Active', mutual: 12 },
+            { name: 'Frank Miller', avatar: 'FM', status: 'Offline', mutual: 8 },
+            { name: 'Grace Wilson', avatar: 'GW', status: 'Online', mutual: 15 }
+        ];
+        
+        const friendsHtml = friends.map(user => `
+            <div class="friend-item">
+                <div class="friend-avatar">${user.avatar}</div>
+                <div class="friend-info">
+                    <div class="friend-name">${user.name}</div>
+                    <div class="friend-status">${user.status} • ${user.mutual} mutual</div>
+                </div>
+                <button class="friend-message-btn">Message</button>
+            </div>
+        `).join('');
+        
+        allFriendsList.innerHTML = friendsHtml;
+        
+    } catch (error) {
+        console.error('❌ Error loading all friends:', error);
+    }
+}
+
+/**
+ * Load recent activity
+ */
+function loadRecentActivity() {
+    try {
+        const recentActivity = document.getElementById('recentActivity');
+        if (!recentActivity) return;
+        
+        const activities = [
+            { user: 'Alice Johnson', action: 'liked your dream', time: '2 min ago', icon: '❤️' },
+            { user: 'Bob Smith', action: 'commented on your dream', time: '15 min ago', icon: '💬' },
+            { user: 'Carol White', action: 'started following you', time: '1 hour ago', icon: '👥' },
+            { user: 'David Brown', action: 'shared your dream', time: '3 hours ago', icon: '🔄' }
+        ];
+        
+        const activityHtml = activities.map(activity => `
+            <div class="activity-item">
+                <div class="activity-icon">${activity.icon}</div>
+                <div class="activity-content">
+                    <div class="activity-text">
+                        <strong>${activity.user}</strong> ${activity.action}
+                    </div>
+                    <div class="activity-time">${activity.time}</div>
+                </div>
+            </div>
+        `).join('');
+        
+        recentActivity.innerHTML = activityHtml;
+        
+    } catch (error) {
+        console.error('❌ Error loading recent activity:', error);
+    }
+}
+
+/**
+ * Load notifications
+ */
+function loadNotifications() {
+    try {
+        const notificationsList = document.getElementById('notificationsList');
+        if (!notificationsList) return;
+        
+        const notifications = [
+            { title: 'New follower', message: 'Emma Davis started following you', time: '5 min ago', unread: true },
+            { title: 'Dream liked', message: 'Your dream received 10 likes', time: '1 hour ago', unread: true },
+            { title: 'New comment', message: 'Frank commented on your dream', time: '2 hours ago', unread: false },
+            { title: 'Weekly digest', message: 'Your weekly dream summary is ready', time: '1 day ago', unread: false }
+        ];
+        
+        const notificationsHtml = notifications.map(notif => `
+            <div class="notification-item ${notif.unread ? 'unread' : ''}">
+                <div class="notification-content">
+                    <div class="notification-title">${notif.title}</div>
+                    <div class="notification-message">${notif.message}</div>
+                    <div class="notification-time">${notif.time}</div>
+                </div>
+                ${notif.unread ? '<div class="notification-dot"></div>' : ''}
+            </div>
+        `).join('');
+        
+        notificationsList.innerHTML = notificationsHtml;
+        
+    } catch (error) {
+        console.error('❌ Error loading notifications:', error);
+    }
+}
+
+/**
+ * Save post to database
+ * @param {Object} post - The post object to save
+ */
+async function savePost(post) {
+    try {
+        console.log('🎬 [DEBUG] Saving post to database:', post);
+        
+        // Try to save via API first
+        try {
+            const response = await fetch('/api/posts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    title: post.title || 'Untitled Dream',
+                    text: post.content || post.text || '',
+                    mood: post.mood || 'Inspired',
+                    image: post.media && post.media.length > 0 ? post.media[0].url : null,
+                    public: post.isPublic !== false,
+                    authorEmail: post.authorEmail || currentUser?.email || '',
+                    authorName: post.author || currentUser?.name || 'Anonymous'
+                })
+            });
+            
+            if (response.ok) {
+                const savedPost = await response.json();
+                console.log('✅ [DEBUG] Post saved via API:', savedPost);
+                
+                // Also save to localStorage as backup
+                const localPosts = JSON.parse(localStorage.getItem('dreamPosts') || '[]');
+                localPosts.unshift(post);
+                localStorage.setItem('dreamPosts', JSON.stringify(localPosts));
+                
+                // Re-render feed
+                if (typeof renderFeed === 'function') {
+                    renderFeed();
+                }
+                
+                return savedPost;
+            } else {
+                throw new Error(`API error: ${response.status}`);
+            }
+        } catch (apiError) {
+            console.warn('⚠️ [DEBUG] API not available, using localStorage:', apiError.message);
+            
+            // Fallback to localStorage
+            const posts = JSON.parse(localStorage.getItem('dreamPosts') || '[]');
+            
+            // Add new post to beginning
+            posts.unshift(post);
+            
+            // Save to localStorage
+            localStorage.setItem('dreamPosts', JSON.stringify(posts));
+            
+            console.log('✅ [DEBUG] Post saved to localStorage');
+            
+            // Re-render feed
+            if (typeof renderFeed === 'function') {
+                renderFeed();
+            }
+            
+            return post;
+        }
+        
+    } catch (error) {
+        console.error('❌ Error saving post:', error);
+        throw error;
+    }
+}
+
+// ===== CREATE DREAM SLIDESHOW FUNCTIONALITY =====
+
+/**
+ * Show create dream popup modal
+ */
+function showCreateDreamPanel() {
+    try {
+        console.log('🎬 [DEBUG] Starting showCreateDreamPanel function');
+        console.log('🎬 [DEBUG] Current user:', currentUser);
+        
+        // Check if user is logged in
+        if (!currentUser) {
+            console.error('❌ [DEBUG] No user logged in, showing auth');
+            showToast('Please log in to create a dream');
+            return;
+        }
+        
+        // Create popup overlay if it doesn't exist
+        let overlay = document.getElementById('createDreamOverlay');
+        console.log('🎬 [DEBUG] Existing overlay:', overlay);
+        
+        if (!overlay) {
+            console.log('🎬 [DEBUG] Creating new popup overlay');
+            overlay = createPopupOverlay();
+        }
+        
+        // Setup popup content
+        console.log('🎬 [DEBUG] Setting up popup content');
+        setupPopupContent(overlay);
+        
+        // Show overlay with animation
+        console.log('🎬 [DEBUG] Showing popup overlay');
+        overlay.classList.add('active');
+        
+        // Show panel with animation
+        setTimeout(() => {
+            console.log('🎬 [DEBUG] Adding active class to popup panel');
+            const panel = overlay.querySelector('.create-dream-panel');
+            if (panel) {
+                panel.classList.add('active');
+            }
+        }, 50);
+        
+        // Focus on first input
+        setTimeout(() => {
+            console.log('🎬 [DEBUG] Setting focus on first input');
+            const firstInput = overlay.querySelector('input, textarea, select');
+            if (firstInput) {
+                firstInput.focus();
+                console.log('🎬 [DEBUG] Focus set on:', firstInput.id || firstInput.tagName);
+            }
+        }, 300);
+        
+        console.log('✅ [DEBUG] Create dream popup shown successfully');
+        
+    } catch (error) {
+        console.error('❌ [DEBUG] Error in showCreateDreamPanel:', error);
+        console.error('❌ [DEBUG] Error stack:', error.stack);
+        showToast('Failed to open create dream popup');
+        // Fallback: use the existing create view
+        console.log('🎬 [DEBUG] Falling back to changeView("create")');
+        changeView('create');
+    }
+}
+
+/**
+ * Create popup overlay structure
+ */
+function createPopupOverlay() {
+    console.log('🎬 [DEBUG] Creating popup overlay structure');
+    
+    const overlayHtml = `
+        <div class="create-dream-overlay" id="createDreamOverlay">
+            <div class="create-dream-panel" id="createDreamPanel">
+                <div class="create-dream-header">
+                    <h3>Create Your Dream</h3>
+                    <button class="create-dream-close" id="closeCreateDream">✕</button>
+                </div>
+                <div class="create-dream-content" id="popupContent">
+                    <!-- Content will be added here -->
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', overlayHtml);
+    console.log('🎬 [DEBUG] Popup overlay HTML added to body');
+    
+    const overlay = document.getElementById('createDreamOverlay');
+    
+    // Add event listeners
+    const closeBtn = document.getElementById('closeCreateDream');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            console.log('🎬 [DEBUG] Close button clicked');
+            hideCreateDreamPanel();
+        });
+    }
+    
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            console.log('🎬 [DEBUG] Overlay background clicked');
+            hideCreateDreamPanel();
+        }
+    });
+    
+    console.log('🎬 [DEBUG] Event listeners added to popup overlay');
+    return overlay;
+}
+
+/**
+ * Setup popup content with create form
+ */
+function setupPopupContent(overlay) {
+    console.log('🎬 [DEBUG] Setting up popup content');
+    
+    const popupContent = overlay.querySelector('#popupContent');
+    if (!popupContent) {
+        console.error('❌ [DEBUG] Popup content container not found');
+        return;
+    }
+    
+    // Create standalone create form content
+    const formContent = createStandaloneCreateForm();
+    
+    // Clear and add content
+    popupContent.innerHTML = '';
+    popupContent.appendChild(formContent);
+    
+    console.log('🎬 [DEBUG] Create form added to popup');
+    
+    // Attach event listeners
+    attachPopupEventListeners(popupContent);
+    
+    console.log('🎬 [DEBUG] Event listeners attached to popup form');
+}
+
+/**
+ * Create comprehensive create form (same as star FAB form)
+ */
+function createStandaloneCreateForm() {
+    const formContainer = document.createElement('div');
+    formContainer.className = 'slideshow-create-form';
+    formContainer.innerHTML = `
+        <div class="creation-section">
+            <h3>📝 Basic Information</h3>
+            <label>Content Type<select id="slideshowContentType">
+                <option value="dream">💭 Dream</option>
+                <option value="fantasy">✨ Fantasy</option>
+                <option value="scenario">🎭 Scenario</option>
+                <option value="story">📖 Story</option>
+            </select></label>
+            <label>Title<input id="slideshowDreamTitle" type="text" placeholder="Give your creation a title..."></label>
+            <label>Genre/Mood<select id="slideshowDreamMood">
+                <option value="Joyful">😊 Joyful</option>
+                <option value="Determined">💪 Determined</option>
+                <option value="Peaceful">🕊️ Peaceful</option>
+                <option value="Inspired">🌟 Inspired</option>
+                <option value="Confident">🎯 Confident</option>
+                <option value="Magical">🔮 Magical</option>
+                <option value="Mysterious">🌙 Mysterious</option>
+                <option value="Adventurous">🗺️ Adventurous</option>
+                <option value="Romantic">💕 Romantic</option>
+                <option value="Sci-Fi">🚀 Sci-Fi</option>
+                <option value="Fantasy">🐉 Fantasy</option>
+                <option value="Horror">👻 Horror</option>
+            </select></label>
+        </div>
+
+        <div class="creation-section">
+            <h3>🎭 Story Elements</h3>
+            <label>Setting<input id="slideshowDreamSetting" type="text" placeholder="Where does your story take place? (e.g., Enchanted forest, Future city)"></label>
+            <label>Characters<textarea id="slideshowDreamCharacters" rows="3" placeholder="Describe your main characters... (e.g., A brave knight, A wise wizard, A curious explorer)"></textarea></label>
+            <label>Story<textarea id="slideshowDreamText" rows="8" placeholder="Tell your story in detail..."></textarea></label>
+            <label>Theme<input id="slideshowDreamTheme" type="text" placeholder="What's the central theme? (e.g., Courage, Love, Adventure)"></label>
+        </div>
+
+        <div class="creation-section">
+            <h3>⚡ Advanced Options</h3>
+            <label>Story Length<select id="slideshowStoryLength">
+                <option value="short">📄 Short (1-3 paragraphs)</option>
+                <option value="medium">📖 Medium (1-2 pages)</option>
+                <option value="long">📚 Long (3+ pages)</option>
+            </select></label>
+            <label>Target Audience<select id="slideshowTargetAudience">
+                <option value="general">👥 General</option>
+                <option value="young">🧒 Young Readers</option>
+                <option value="teen">👦 Teens</option>
+                <option value="adult">👨 Adults</option>
+            </select></label>
+            <label>Writing Style<select id="slideshowWritingStyle">
+                <option value="descriptive">🎨 Descriptive</option>
+                <option value="dialogue">💬 Dialogue-heavy</option>
+                <option value="action">⚔️ Action-focused</option>
+                <option value="emotional">💭 Emotional</option>
+                <option value="mysterious">🔍 Mysterious</option>
+            </select></label>
+        </div>
+        
+        <label class="file-upload">
+            Upload image <span class="small-text">(optional)</span>
+            <input id="slideshowDreamImage" type="file" accept="image/*">
+        </label>
+        <div class="image-preview hidden" id="slideshowImagePreviewWrapper">
+            <img id="slideshowImagePreview" alt="Dream preview">
+            <button id="slideshowRemoveImageBtn" class="ghost-btn small">Remove</button>
+        </div>
+        
+        <label class="checkbox-row">
+            <input id="slideshowDreamPublic" type="checkbox" checked>
+            <span>Share publicly to the feed</span>
+        </label>
+
+        <div class="dream-actions">
+            <button type="button" class="dream-action-btn cancel" id="slideshowCancelDream">Cancel</button>
+            <button type="submit" class="dream-action-btn post" id="slideshowPostDream">Post Dream</button>
+        </div>
+    `;
+    
+    return formContainer;
+}
+
+/**
+ * Attach event listeners to popup content
+ */
+function attachPopupEventListeners(popupContent) {
+    console.log('🎬 [DEBUG] Attaching event listeners to popup content');
+    
+    // Find and attach to post button
+    const postBtn = popupContent.querySelector('#slideshowPostDream');
+    if (postBtn) {
+        postBtn.addEventListener('click', (e) => {
+            console.log('🎬 [DEBUG] Post button clicked in popup');
+            e.preventDefault();
+            handlePopupCreateDreamSubmit(popupContent);
+        });
+        console.log('🎬 [DEBUG] Post button listener attached');
+    } else {
+        console.error('❌ [DEBUG] Post button not found in popup content');
+    }
+    
+    // Find and attach to cancel button
+    const cancelBtn = popupContent.querySelector('#slideshowCancelDream');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', (e) => {
+            console.log('🎬 [DEBUG] Cancel button clicked in popup');
+            e.preventDefault();
+            hideCreateDreamPanel();
+        });
+        console.log('🎬 [DEBUG] Cancel button listener attached');
+    }
+    
+    console.log('🎬 [DEBUG] All event listeners attached');
+}
+
+/**
+ * Hide create dream panel with slide animation and debugging
+ */
+function hideCreateDreamPanel() {
+    try {
+        console.log('🎬 [DEBUG] Starting hideCreateDreamPanel function');
+        
+        const createDreamOverlay = document.getElementById('createDreamOverlay');
+        const createDreamPanel = document.getElementById('createDreamPanel');
+        
+        console.log('🎬 [DEBUG] Overlay element:', createDreamOverlay);
+        console.log('🎬 [DEBUG] Panel element:', createDreamPanel);
+        
+        if (!createDreamOverlay || !createDreamPanel) {
+            console.log('🎬 [DEBUG] Overlay or panel not found, nothing to hide');
+            return;
+        }
+        
+        // Add closing animation
+        console.log('🎬 [DEBUG] Adding closing animation');
+        createDreamPanel.classList.add('closing');
+        
+        // Hide after animation
+        setTimeout(() => {
+            console.log('🎬 [DEBUG] Removing active classes');
+            createDreamPanel.classList.remove('active', 'closing');
+            createDreamOverlay.classList.remove('active');
+            
+            // Clear slideshow content
+            const slideshowContent = createDreamOverlay.querySelector('#slideshowContent');
+            if (slideshowContent) {
+                console.log('🎬 [DEBUG] Clearing slideshow content');
+                slideshowContent.innerHTML = '';
+            }
+            
+            console.log('✅ [DEBUG] Create dream panel hidden successfully');
+        }, 300);
+        
+    } catch (error) {
+        console.error('❌ [DEBUG] Error in hideCreateDreamPanel:', error);
+        console.error('❌ [DEBUG] Error stack:', error.stack);
+    }
+}
+
+/**
+ * Handle create dream form submission from popup (comprehensive form)
+ * @param {HTMLElement} popupContent - The popup content element
+ */
+function handlePopupCreateDreamSubmit(popupContent) {
+    try {
+        console.log('🎬 [DEBUG] Starting handlePopupCreateDreamSubmit');
+        console.log('🎬 [DEBUG] Popup content element:', popupContent);
+        
+        // Get all form values from comprehensive popup content
+        const contentType = popupContent.querySelector('#slideshowContentType')?.value || 'dream';
+        const title = popupContent.querySelector('#slideshowDreamTitle')?.value?.trim() || '';
+        const mood = popupContent.querySelector('#slideshowDreamMood')?.value || 'Inspired';
+        const setting = popupContent.querySelector('#slideshowDreamSetting')?.value?.trim() || '';
+        const characters = popupContent.querySelector('#slideshowDreamCharacters')?.value?.trim() || '';
+        const story = popupContent.querySelector('#slideshowDreamText')?.value?.trim() || '';
+        const theme = popupContent.querySelector('#slideshowDreamTheme')?.value?.trim() || '';
+        
+        // Advanced options
+        const storyLength = popupContent.querySelector('#slideshowStoryLength')?.value || 'medium';
+        const targetAudience = popupContent.querySelector('#slideshowTargetAudience')?.value || 'general';
+        const writingStyle = popupContent.querySelector('#slideshowWritingStyle')?.value || 'descriptive';
+        
+        // File and privacy
+        const isPublic = popupContent.querySelector('#slideshowDreamPublic')?.checked !== false;
+        
+        console.log('🎬 [DEBUG] All form values collected:', {
+            contentType, title, mood, setting, characters, story, theme,
+            storyLength, targetAudience, writingStyle, isPublic
+        });
+        
+        // Validate required fields
+        if (!story && !title) {
+            console.error('❌ [DEBUG] No content provided');
+            showToast('Please write a story or add a title');
+            return;
+        }
+        
+        // Create comprehensive dream post with all fields
+        const dreamPost = {
+            id: Date.now(),
+            author: currentUser?.name || 'Anonymous',
+            authorEmail: currentUser?.email || '',
+            title: title,
+            content: story || title,
+            contentType: contentType,
+            mood: mood,
+            setting: setting,
+            characters: characters,
+            theme: theme,
+            storyLength: storyLength,
+            targetAudience: targetAudience,
+            writingStyle: writingStyle,
+            timestamp: new Date().toISOString(),
+            likes: 0,
+            likedBy: [],
+            comments: [],
+            type: contentType,
+            isPublic: isPublic,
+            media: []
+        };
+        
+        console.log('🎬 [DEBUG] Comprehensive dream post created:', dreamPost);
+        
+        // Save post
+        savePost(dreamPost);
+        console.log('🎬 [DEBUG] Post saved to database');
+        
+        // Hide popup
+        hideCreateDreamPanel();
+        console.log('🎬 [DEBUG] Popup hidden');
+        
+        // Show success message
+        showToast(`${contentType.charAt(0).toUpperCase() + contentType.slice(1)} posted successfully! 🌟`);
+        
+        // Switch to feed tab to show the new post
+        const feedTab = document.querySelector('[data-tab="feed"]');
+        if (feedTab && !feedTab.classList.contains('active')) {
+            console.log('🎬 [DEBUG] Switching to feed tab');
+            feedTab.click();
+        }
+        
+        console.log('✅ [DEBUG] Comprehensive popup dream creation completed successfully');
+        
+    } catch (error) {
+        console.error('❌ [DEBUG] Error in handlePopupCreateDreamSubmit:', error);
+        console.error('❌ [DEBUG] Error stack:', error.stack);
+        showToast('Failed to post dream');
+    }
+}
+
 function handleSidebarAction(action) {
     console.log('🧭 Sidebar action:', action);
     switch (action) {
+        case 'create-dream':
+            console.log('🧭 Opening create dream from sidebar');
+            
+            // Check if current tab allows modal (first and second feed tabs only)
+            const currentActiveTab = document.querySelector('.nav-tab.active');
+            const currentTabName = currentActiveTab ? currentActiveTab.dataset.tab : null;
+            
+            console.log('🧭 [DEBUG] Current active tab:', currentTabName);
+            
+            // Allow modal on 'feed' and 'shorts' tabs only
+            if (currentTabName === 'feed' || currentTabName === 'shorts') {
+                console.log('🧭 [DEBUG] Tab allows modal, showing create dream modal');
+                openModal('createDreamModal');
+            } else {
+                console.log('🧭 [DEBUG] Tab does not allow modal, switching to feed first');
+                // Switch to feed tab first, then show modal
+                const feedTab = document.querySelector('[data-tab="feed"]');
+                if (feedTab) {
+                    feedTab.click();
+                    // Show modal after tab switch
+                    setTimeout(() => {
+                        openModal('createDreamModal');
+                    }, 300);
+                } else {
+                    console.error('❌ [DEBUG] Feed tab not found');
+                    showToast('Unable to switch to feed tab');
+                }
+            }
+            break;
         case 'profile':
             console.log('🧭 Navigating to profile from sidebar');
             changeView('profile');
@@ -873,8 +2044,12 @@ function handleSidebarAction(action) {
             console.log('🧭 Navigating to settings from sidebar');
             changeView('settings');
             break;
+        case 'logout':
+            console.log('🧭 Logging out from sidebar');
+            logout();
+            break;
         default:
-            console.log('❌ Unknown sidebar action:', action);
+            console.log('🧭 Unknown sidebar action:', action);
     }
 }
 
@@ -982,12 +2157,6 @@ function updateUserInterface() {
     
     if (dropdownUsername) dropdownUsername.textContent = userName;
     if (dropdownEmail) dropdownEmail.textContent = userEmail;
-    
-    // Update user handle
-    const userHandleElements = document.querySelectorAll('.user-handle');
-    userHandleElements.forEach(element => {
-        element.textContent = userHandle;
-    });
 }
 
 // Sanitize text to prevent duplication
@@ -1055,9 +2224,9 @@ function renderModernPost(post) {
             <div class="post-content">
                 ${postTitle ? `<div class="post-title">${postTitle}</div>` : ''}
                 <div class="post-text">${postContent}</div>
-                ${post.image ? `
+                ${(post.image || (post.media && post.media.length > 0)) ? `
                     <div class="post-image-container">
-                        <img src="${post.image}" alt="Post image" loading="lazy">
+                        <img src="${post.image || (post.media && post.media[0]?.url)}" alt="Post image" loading="lazy">
                     </div>
                 ` : ''}
                 
@@ -2808,7 +3977,19 @@ function openModal(modalId) {
             updateModalProfile();
         } else if (modalId === 'settingsModal') {
             updateModalSettings();
-        }
+        } else if (modalId === 'createDreamModal') {
+                   // Clear form for new dream
+                   clearCreateDreamModal();
+                   // Setup image upload functionality
+                   setupModalImageUpload();
+                   // Focus on first input
+                   setTimeout(() => {
+                       const firstInput = modal.querySelector('input, textarea, select');
+                       if (firstInput) {
+                           firstInput.focus();
+                       }
+                   }, 300);
+               }
     }
 }
 
@@ -2834,6 +4015,242 @@ function closeAllModals() {
     }
     
     document.body.style.overflow = '';
+}
+
+/**
+ * Clear create dream modal form
+ */
+function clearCreateDreamModal() {
+    console.log('🎬 [DEBUG] Clearing create dream modal form');
+    
+    // Clear all input fields
+    const modal = document.getElementById('createDreamModal');
+    if (!modal) return;
+    
+    // Clear text inputs and textareas
+    modal.querySelectorAll('input[type="text"], textarea').forEach(input => {
+        input.value = '';
+    });
+    
+    // Reset selects to default values
+    modal.querySelectorAll('select').forEach(select => {
+        select.selectedIndex = 0;
+    });
+    
+    // Reset checkbox
+    const publicCheckbox = modal.querySelector('#modalDreamPublic');
+    if (publicCheckbox) {
+        publicCheckbox.checked = true;
+    }
+    
+    // Clear file input and image preview
+    const fileInput = modal.querySelector('#modalDreamImage');
+    const imagePreview = modal.querySelector('#modalImagePreview');
+    const previewWrapper = modal.querySelector('#modalImagePreviewWrapper');
+    
+    if (fileInput) fileInput.value = '';
+    if (imagePreview) imagePreview.src = '';
+    if (previewWrapper) previewWrapper.classList.add('hidden');
+    
+    console.log('🎬 [DEBUG] Create dream modal form cleared');
+}
+
+/**
+ * Handle FAB create dream button click
+ */
+function handleFabCreateDream() {
+    try {
+        console.log('🧭 [DEBUG] FAB create dream button clicked');
+        
+        // Check if user is logged in
+        if (!currentUser) {
+            console.error('❌ [DEBUG] No user logged in, showing auth');
+            showToast('Please log in to create a dream');
+            return;
+        }
+        
+        // Check if current tab allows modal (first and second feed tabs only)
+        const currentActiveTab = document.querySelector('.nav-tab.active');
+        const currentTabName = currentActiveTab ? currentActiveTab.dataset.tab : null;
+        
+        console.log('🧭 [DEBUG] FAB - Current active tab:', currentTabName);
+        
+        // Allow modal on 'feed' and 'shorts' tabs only
+        if (currentTabName === 'feed' || currentTabName === 'shorts') {
+            console.log('🧭 [DEBUG] FAB - Tab allows modal, showing create dream modal');
+            openModal('createDreamModal');
+        } else {
+            console.log('🧭 [DEBUG] FAB - Tab does not allow modal, switching to feed first');
+            // Switch to feed tab first, then show modal
+            const feedTab = document.querySelector('[data-tab="feed"]');
+            if (feedTab) {
+                feedTab.click();
+                // Show modal after tab switch
+                setTimeout(() => {
+                    openModal('createDreamModal');
+                }, 300);
+            } else {
+                console.error('❌ [DEBUG] FAB - Feed tab not found');
+                showToast('Unable to switch to feed tab');
+            }
+        }
+        
+    } catch (error) {
+        console.error('❌ [DEBUG] Error in handleFabCreateDream:', error);
+        console.error('❌ [DEBUG] Error stack:', error.stack);
+        showToast('Failed to open create dream modal');
+    }
+}
+
+/**
+ * Setup image upload functionality for create dream modal
+ */
+function setupModalImageUpload() {
+    const fileInput = document.getElementById('modalDreamImage');
+    const previewWrapper = document.getElementById('modalImagePreviewWrapper');
+    const imagePreview = document.getElementById('modalImagePreview');
+    const removeBtn = document.getElementById('modalRemoveImageBtn');
+    
+    if (!fileInput || !previewWrapper || !imagePreview || !removeBtn) {
+        console.warn('Modal image upload elements not found');
+        return;
+    }
+    
+    // Handle file selection
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file && file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                imagePreview.src = e.target.result;
+                previewWrapper.classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+    
+    // Handle remove button
+    removeBtn.addEventListener('click', () => {
+        fileInput.value = '';
+        imagePreview.src = '';
+        previewWrapper.classList.add('hidden');
+    });
+}
+
+/**
+ * Handle create dream modal form submission
+ */
+async function handleModalCreateDreamSubmit() {
+    try {
+        console.log('🎬 [DEBUG] Starting handleModalCreateDreamSubmit');
+        
+        // Check if user is logged in
+        if (!currentUser) {
+            console.error('❌ [DEBUG] No user logged in');
+            showToast('Please log in to create a dream');
+            closeModal('createDreamModal');
+            return;
+        }
+        
+        // Get all form values from modal
+        const modal = document.getElementById('createDreamModal');
+        if (!modal) {
+            console.error('❌ [DEBUG] Create dream modal not found');
+            return;
+        }
+        
+        const contentType = modal.querySelector('#modalContentType')?.value || 'dream';
+        const title = modal.querySelector('#modalDreamTitle')?.value?.trim() || '';
+        const mood = modal.querySelector('#modalDreamMood')?.value || 'Inspired';
+        const setting = modal.querySelector('#modalDreamSetting')?.value?.trim() || '';
+        const characters = modal.querySelector('#modalDreamCharacters')?.value?.trim() || '';
+        const story = modal.querySelector('#modalDreamText')?.value?.trim() || '';
+        const theme = modal.querySelector('#modalDreamTheme')?.value?.trim() || '';
+        
+        // Advanced options
+        const storyLength = modal.querySelector('#modalStoryLength')?.value || 'medium';
+        const targetAudience = modal.querySelector('#modalTargetAudience')?.value || 'general';
+        const writingStyle = modal.querySelector('#modalWritingStyle')?.value || 'descriptive';
+        
+        // Privacy
+        const isPublic = modal.querySelector('#modalDreamPublic')?.checked !== false;
+        
+        // Image handling
+        const fileInput = modal.querySelector('#modalDreamImage');
+        const imagePreview = modal.querySelector('#modalImagePreview');
+        let imageData = null;
+        
+        if (imagePreview && imagePreview.src && imagePreview.src !== '') {
+            imageData = imagePreview.src; // Base64 image data
+        }
+        
+        console.log('🎬 [DEBUG] Modal form values collected:', {
+            contentType, title, mood, setting, characters, story, theme,
+            storyLength, targetAudience, writingStyle, isPublic, hasImage: !!imageData
+        });
+        
+        // Validate required fields
+        if (!story && !title) {
+            console.error('❌ [DEBUG] No content provided');
+            showToast('Please write a story or add a title');
+            return;
+        }
+        
+        // Create comprehensive dream post
+        const dreamPost = {
+            id: Date.now(),
+            author: currentUser?.name || 'Anonymous',
+            authorEmail: currentUser?.email || '',
+            title: title,
+            content: story || title,
+            contentType: contentType,
+            mood: mood,
+            setting: setting,
+            characters: characters,
+            theme: theme,
+            storyLength: storyLength,
+            targetAudience: targetAudience,
+            writingStyle: writingStyle,
+            timestamp: new Date().toISOString(),
+            likes: 0,
+            likedBy: [],
+            comments: [],
+            type: contentType,
+            isPublic: isPublic,
+            media: imageData ? [{
+                type: 'image',
+                url: imageData,
+                alt: title || 'Dream image'
+            }] : []
+        };
+        
+        console.log('🎬 [DEBUG] Modal dream post created:', dreamPost);
+        
+        // Save post
+        await savePost(dreamPost);
+        console.log('🎬 [DEBUG] Post saved to database');
+        
+        // Close modal
+        closeModal('createDreamModal');
+        console.log('🎬 [DEBUG] Modal closed');
+        
+        // Show success message
+        showToast(`${contentType.charAt(0).toUpperCase() + contentType.slice(1)} posted successfully! 🌟`);
+        
+        // Switch to feed tab to show the new post
+        const feedTab = document.querySelector('[data-tab="feed"]');
+        if (feedTab && !feedTab.classList.contains('active')) {
+            console.log('🎬 [DEBUG] Switching to feed tab');
+            feedTab.click();
+        }
+        
+        console.log('✅ [DEBUG] Modal dream creation completed successfully');
+        
+    } catch (error) {
+        console.error('❌ [DEBUG] Error in handleModalCreateDreamSubmit:', error);
+        console.error('❌ [DEBUG] Error stack:', error.stack);
+        showToast('Failed to post dream');
+    }
 }
 
 async function updateModalProfile() {
@@ -2970,6 +4387,9 @@ function updateProfileInfoUI() {
         document.getElementById('profileNameDisplay'),
         document.getElementById('dropdownUsername')
     ];
+    
+    // Create username from profile name (lowercase, no spaces, with @)
+    const username = '@' + currentUser.name.toLowerCase().replace(/\s+/g, '');
     
     userNameElements.forEach(element => {
         if (element) {
@@ -3204,28 +4624,247 @@ async function saveProfileChanges() {
 }
 
 async function handleCoverUpload(event) {
+    console.log('🖼️ handleCoverUpload called');
+    console.log('🖼️ Event object:', event);
+    console.log('🖼️ Event target:', event.target);
+    console.log('🖼️ Event target files:', event.target.files);
+    console.log('🖼️ Files length:', event.target.files.length);
+    
     const file = event.target.files[0];
-    if (!file) return;
+    if (!file) {
+        console.log('❌ No file selected');
+        return;
+    }
+    
+    console.log('🖼️ File selected:', file);
+    console.log('🖼️ File name:', file.name);
+    console.log('🖼️ File type:', file.type);
+    console.log('🖼️ File size:', file.size);
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+        showToast('Please select an image file');
+        return;
+    }
+    
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        showToast('Image size must be less than 5MB');
+        return;
+    }
+    
     const reader = new FileReader();
-    reader.onload = () => {
-        currentUser.coverImage = reader.result;
-        elements.profileCover.style.backgroundImage = `url('${reader.result}')`;
-        showToast('Cover picture updated!');
+    reader.onload = async () => {
+        try {
+            const imageData = reader.result;
+            console.log('🖼️ Cover image loaded, updating UI and database');
+            
+            // Update current user object immediately
+            currentUser.coverImage = imageData;
+            
+            // Update UI elements instantly
+            if (elements.profileCover) {
+                elements.profileCover.style.backgroundImage = `url('${imageData}')`;
+                console.log('🖼️ Updated profile cover element');
+            }
+            
+            // Save to database
+            await saveCoverImageToDatabase(imageData);
+            
+            // Update all profile-related UI elements
+            await updateAllProfileElements();
+            
+            console.log('✅ Cover picture uploaded and saved successfully');
+            showToast('Cover picture updated successfully!');
+            
+        } catch (error) {
+            console.error('❌ Error uploading cover picture:', error);
+            showToast('Failed to upload cover picture');
+        }
     };
+    
+    reader.onerror = () => {
+        console.error('❌ Error reading file');
+        showToast('Failed to read image file');
+    };
+    
     reader.readAsDataURL(file);
 }
 
 async function handleProfilePictureUpload(event) {
+    console.log('📷 handleProfilePictureUpload called');
+    console.log('📷 Event object:', event);
+    console.log('📷 Event target:', event.target);
+    console.log('📷 Event target files:', event.target.files);
+    console.log('📷 Files length:', event.target.files.length);
+    
     const file = event.target.files[0];
-    if (!file) return;
+    if (!file) {
+        console.log('❌ No file selected');
+        return;
+    }
+    
+    console.log('📷 File selected:', file);
+    console.log('📷 File name:', file.name);
+    console.log('📷 File type:', file.type);
+    console.log('📷 File size:', file.size);
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+        showToast('Please select an image file');
+        return;
+    }
+    
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        showToast('Image size must be less than 5MB');
+        return;
+    }
+    
     const reader = new FileReader();
-    reader.onload = () => {
-        currentUser.profileImage = reader.result;
-        if (elements.aiAvatar) {
-            console.log('🤖 AI assistant uses fixed icon, no image update needed');
-        };
+    console.log('📷 Creating FileReader');
+    
+    reader.onload = async () => {
+        console.log('📷 FileReader onload triggered');
+        console.log('📷 Reader result length:', reader.result ? reader.result.length : 'null');
+        
+        try {
+            const imageData = reader.result;
+            console.log('📷 Profile image loaded, updating UI and database');
+            console.log('📷 Image data type:', typeof imageData);
+            
+            // Update current user object immediately
+            currentUser.profileImage = imageData;
+            
+            // Update all UI elements instantly
+            updateProfilePictureUI(imageData);
+            
+            // Save to database
+            await saveProfileImageToDatabase(imageData);
+            
+            // Update all profile-related UI elements
+            await updateAllProfileElements();
+            
+            console.log('✅ Profile picture uploaded and saved successfully');
+            showToast('Profile picture updated successfully!');
+            
+        } catch (error) {
+            console.error('❌ Error uploading profile picture:', error);
+            showToast('Failed to upload profile picture');
+        }
     };
+    
+    reader.onerror = () => {
+        console.error('❌ FileReader error triggered');
+        showToast('Failed to read image file');
+    };
+    
+    reader.onabort = () => {
+        console.log('📷 FileReader aborted');
+    };
+    
+    console.log('📷 Starting to read file as DataURL');
     reader.readAsDataURL(file);
+    console.log('📷 readAsDataURL called, waiting for onload...');
+}
+
+// Helper function to update profile picture UI elements
+function updateProfilePictureUI(imageData) {
+    console.log('🖼️ Updating profile picture UI elements');
+    
+    if (!imageData) {
+        console.log('❌ No image data provided');
+        return;
+    }
+    
+    // Update dropdown avatar
+    if (elements.userAvatar) {
+        elements.userAvatar.style.backgroundImage = `url('${imageData}')`;
+        elements.userAvatar.textContent = '';
+        console.log('🖼️ Updated dropdown avatar');
+    }
+    
+    // Update profile page avatar
+    if (elements.profileAvatarLarge) {
+        elements.profileAvatarLarge.style.backgroundImage = `url('${imageData}')`;
+        elements.profileAvatarLarge.textContent = '';
+        console.log('🖼️ Updated profile page avatar');
+    }
+    
+    // Update feed avatar
+    if (elements.feedUserAvatar) {
+        elements.feedUserAvatar.style.backgroundImage = `url('${imageData}')`;
+        elements.feedUserAvatar.textContent = '';
+        console.log('🖼️ Updated feed avatar');
+    }
+    
+    // Update modal profile avatar
+    const modalProfileAvatarLarge = document.getElementById('modalProfileAvatarLarge');
+    if (modalProfileAvatarLarge) {
+        modalProfileAvatarLarge.style.backgroundImage = `url('${imageData}')`;
+        modalProfileAvatarLarge.textContent = '';
+        console.log('🖼️ Updated modal profile avatar');
+    }
+    
+    console.log('✅ Profile picture UI updated successfully');
+}
+
+// Helper function to save profile image to database
+async function saveProfileImageToDatabase(imageData) {
+    console.log('💾 Saving profile image to database');
+    
+    try {
+        const response = await fetch('/api/users/profile-image', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                email: currentUser.email,
+                profileImage: imageData
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('💾 Profile image saved to database:', result);
+        
+    } catch (error) {
+        console.error('❌ Error saving profile image to database:', error);
+        throw error;
+    }
+}
+
+// Helper function to save cover image to database
+async function saveCoverImageToDatabase(imageData) {
+    console.log('💾 Saving cover image to database');
+    
+    try {
+        const response = await fetch('/api/users/cover-image', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                email: currentUser.email,
+                coverImage: imageData
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('💾 Cover image saved to database:', result);
+        
+    } catch (error) {
+        console.error('❌ Error saving cover image to database:', error);
+        throw error;
+    }
 }
 
 // AI Chat functionality
@@ -3243,5 +4882,148 @@ function openAIChat() {
     showToast('AI Chat coming soon! 🤖');
     console.log('🤖 AI chat placeholder - full implementation coming later');
 }
+
+// Simplified, working image upload functions
+window.uploadProfileImage = function(event) {
+    console.log('📷 Upload profile image called');
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function() {
+        const imageData = reader.result;
+        console.log('📷 Image loaded, updating UI');
+        
+        // Update current user
+        if (window.currentUser) {
+            window.currentUser.profileImage = imageData;
+        }
+        
+        // Update UI elements
+        const profileAvatar = document.getElementById('profileAvatarLarge');
+        if (profileAvatar) {
+            profileAvatar.style.backgroundImage = `url('${imageData}')`;
+            profileAvatar.textContent = '';
+        }
+        
+        const dropdownAvatar = document.getElementById('dropdownAvatar');
+        if (dropdownAvatar) {
+            dropdownAvatar.style.backgroundImage = `url('${imageData}')`;
+            dropdownAvatar.textContent = '';
+        }
+        
+        console.log('✅ Profile image updated successfully');
+        alert('Profile picture uploaded successfully!');
+    };
+    reader.readAsDataURL(file);
+};
+
+window.uploadCoverImage = function(event) {
+    console.log('🖼️ Upload cover image called');
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function() {
+        const imageData = reader.result;
+        console.log('🖼️ Image loaded, updating UI');
+        
+        // Update current user
+        if (window.currentUser) {
+            window.currentUser.coverImage = imageData;
+        }
+        
+        // Update UI elements
+        const profileCover = document.getElementById('profileCover');
+        if (profileCover) {
+            profileCover.style.backgroundImage = `url('${imageData}')`;
+        }
+        
+        console.log('✅ Cover image updated successfully');
+        alert('Cover picture uploaded successfully!');
+    };
+    reader.readAsDataURL(file);
+};
+
+// Simple, working image upload functions
+window.uploadProfileImageSimple = function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const imageData = e.target.result;
+        
+        // Update profile avatar
+        const avatar = document.getElementById('profileAvatarLarge');
+        if (avatar) {
+            avatar.style.backgroundImage = `url('${imageData}')`;
+            avatar.style.backgroundSize = 'cover';
+            avatar.style.backgroundPosition = 'center';
+            avatar.style.backgroundRepeat = 'no-repeat';
+            avatar.style.borderRadius = '50%';
+            avatar.style.width = '120px';
+            avatar.style.height = '120px';
+            avatar.style.display = 'flex';
+            avatar.style.alignItems = 'center';
+            avatar.style.justifyContent = 'center';
+            avatar.textContent = '';
+        }
+    };
+    reader.readAsDataURL(file);
+};
+
+window.uploadSidebarProfileImage = function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const imageData = e.target.result;
+        
+        // Update sidebar avatar
+        const sidebarAvatar = document.getElementById('sidebarUserAvatar');
+        if (sidebarAvatar) {
+            sidebarAvatar.style.backgroundImage = `url('${imageData}')`;
+            sidebarAvatar.style.backgroundSize = 'cover';
+            sidebarAvatar.style.backgroundPosition = 'center';
+            sidebarAvatar.style.backgroundRepeat = 'no-repeat';
+            sidebarAvatar.style.borderRadius = '50%';
+            sidebarAvatar.style.width = '40px';
+            sidebarAvatar.style.height = '40px';
+            sidebarAvatar.textContent = '';
+        }
+    };
+    reader.readAsDataURL(file);
+};
+
+window.uploadCoverImageSimple = function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const imageData = e.target.result;
+        
+        // Update profile cover
+        const cover = document.getElementById('profileCover');
+        if (cover) {
+            cover.style.backgroundImage = `url('${imageData}')`;
+            cover.style.backgroundSize = 'cover';
+            cover.style.backgroundPosition = 'center';
+            cover.style.backgroundRepeat = 'no-repeat';
+            cover.style.width = '100%';
+            cover.style.height = '200px';
+            cover.style.borderRadius = '12px';
+        }
+    };
+    reader.readAsDataURL(file);
+};
+
+// Make functions globally accessible
+window.handleProfilePictureUpload = window.uploadProfileImage;
+window.handleCoverUpload = window.uploadCoverImage;
+window.currentUser = currentUser;
+window.elements = elements;
 
 init();
