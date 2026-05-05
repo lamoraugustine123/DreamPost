@@ -143,35 +143,50 @@
             </div>
         </header>
 
+        <!-- Facebook-style Navigation Tabs -->
+        <div class="nav-tabs-container">
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-tab="feed">
+                    <span class="tab-icon feed-icon"></span>
+                    <span class="tab-text">Feed</span>
+                </button>
+                <button class="nav-tab" data-tab="shorts">
+                    <span class="tab-icon shorts-icon"></span>
+                    <span class="tab-text">Shorts</span>
+                </button>
+                <button class="nav-tab" data-tab="friends">
+                    <span class="tab-icon friends-icon"></span>
+                    <span class="tab-text">Friends</span>
+                </button>
+                <button class="nav-tab" data-tab="activity">
+                    <span class="tab-icon activity-icon"></span>
+                    <span class="tab-text">Activity</span>
+                </button>
+            </div>
+        </div>
+
         <main class="modern-main">
             <!-- Left Sidebar -->
             <aside class="modern-sidebar left-sidebar">
                 <div class="sidebar-section">
-                    <div class="ai-assistant-card">
-                        <div class="ai-avatar-large">
-                            <span class="ai-icon">🤖</span>
+                    <div class="user-profile-card">
+                        <div class="user-avatar" id="sidebarUserAvatar">DP</div>
+                        <div class="user-info">
+                            <div class="user-name" id="sidebarUserName">User Name</div>
                         </div>
-                        <div class="ai-info">
-                            <div class="ai-name">Dream AI ChatBOT  </div>
-                            <div class="ai-status">Ready to help</div>
+                        <div class="profile-actions">
+                            <input type="file" id="sidebarProfileInput" accept="image/*" style="display: none;" onchange="uploadSidebarProfileImage(event)">
+                            <button class="upload-btn" onclick="document.getElementById('sidebarProfileInput').click()">📷</button>
                         </div>
-                        <button class="ai-chat-btn" onclick="openAIChat()">Chat with AI</button>
                     </div>
-                </div>
-                
-                <div class="sidebar-section">
                     <nav class="sidebar-nav">
                         <button class="sidebar-nav-item active" data-view="feed">
                             <span class="nav-icon">home</span>
-                            <span>Home</span>
+                            <span>Feed</span>
                         </button>
-                        <button class="sidebar-nav-item" data-view="create">
-                            <span class="nav-icon">add_box</span>
+                        <button class="sidebar-nav-item" data-action="create-dream">
+                            <span class="nav-icon">add_circle</span>
                             <span>Create Dream</span>
-                        </button>
-                        <button class="sidebar-nav-item" data-view="explore">
-                            <span class="nav-icon">explore</span>
-                            <span>Explore</span>
                         </button>
                         <button class="sidebar-nav-item" data-action="profile">
                             <span class="nav-icon">person</span>
@@ -185,39 +200,15 @@
                 </div>
                 
                 <div class="sidebar-section">
-                    <div class="stats-card">
-                        <div class="stat-item">
-                            <div class="stat-number" id="sidebarDreamCount">0</div>
-                            <div class="stat-label">Dreams</div>
+                    <div class="ai-assistant-card">
+                        <div class="ai-avatar-large">
+                            <span class="ai-icon">🤖</span>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-number" id="sidebarLikesCount">0</div>
-                            <div class="stat-label">Likes</div>
+                        <div class="ai-info">
+                            <div class="ai-name">Dream AI ChatBOT  </div>
+                            <div class="ai-status">Ready to help</div>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-number" id="sidebarStreakCount">0</div>
-                            <div class="stat-label">Streak</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="sidebar-section">
-                    <div class="trending-card">
-                        <h3 class="trending-title">Trending Dreams</h3>
-                        <div class="trending-list">
-                            <div class="trending-item">
-                                <span class="trending-tag">#imagination</span>
-                                <span class="trending-count">1.2k</span>
-                            </div>
-                            <div class="trending-item">
-                                <span class="trending-tag">#fantasy</span>
-                                <span class="trending-count">892</span>
-                            </div>
-                            <div class="trending-item">
-                                <span class="trending-tag">#adventure</span>
-                                <span class="trending-count">756</span>
-                            </div>
-                        </div>
+                        <button class="ai-chat-btn" onclick="openAIChat()">Chat with AI</button>
                     </div>
                 </div>
             </aside>
@@ -407,20 +398,21 @@
                             <p>Track your dreams, badges, and outreach.</p>
                         </div>
                         <button id="editProfileBtn" class="ghost-btn">✏️ Edit Profile</button>
+                        <button onclick="testImageUpload()" class="ghost-btn" style="margin-left: 10px;">🧪 Test Upload</button>
                     </div>
                     
                     <div id="profileDisplay">
                         <div class="profile-cover" id="profileCover" style="background: linear-gradient(135deg, var(--accent), var(--secondary));">
-                            <label class="cover-upload" title="Upload Cover Picture">
-                                <input id="coverImageInput" type="file" accept="image/*" hidden>
+                            <label class="cover-upload" title="Upload Cover Picture" onclick="document.getElementById('coverImageInput').click()">
+                                <input id="coverImageInput" type="file" accept="image/*" hidden onchange="window.uploadCoverImage(event)">
                                 📷
                             </label>
                         </div>
                         <div class="profile-header">
                             <div class="profile-avatar-wrapper">
                                 <div class="profile-avatar-large" id="profileAvatarLarge">DP</div>
-                                <label class="avatar-upload" title="Upload Profile Picture">
-                                    <input id="profileImageInput" type="file" accept="image/*" hidden>
+                                <label class="avatar-upload" title="Upload Profile Picture" onclick="document.getElementById('profileImageInput').click()">
+                                    <input id="profileImageInput" type="file" accept="image/*" hidden onchange="window.uploadProfileImage(event)">
                                     📷
                                 </label>
                             </div>
@@ -428,6 +420,17 @@
                                 <h3 id="profileNameDisplay">User Name</h3>
                                 <p id="profileEmailDisplay">user@example.com</p>
                                 <p id="profileBioDisplay">No bio yet</p>
+                                <div style="margin-top: 15px;">
+                                    <button style="background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; margin-bottom: 10px; width: 100%;" onclick="document.getElementById('profileFileInput').click()">
+                                        📷 Upload Profile Picture
+                                    </button>
+                                    <input type="file" id="profileFileInput" accept="image/*" style="display: none;" onchange="uploadProfileImageSimple(event)">
+                                    
+                                    <button style="background: linear-gradient(135deg, var(--accent), var(--secondary)); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; width: 100%;" onclick="document.getElementById('coverFileInput').click()">
+                                        🖼️ Upload Cover Picture
+                                    </button>
+                                    <input type="file" id="coverFileInput" accept="image/*" style="display: none;" onchange="uploadCoverImageSimple(event)">
+                                </div>
                             </div>
                         </div>
                         <div class="profile-summary">
@@ -974,7 +977,7 @@
         </main>
     </div>
 
-    <button id="fab" class="fab" onclick="changeView('create')">✨</button>
+    <button id="fab" class="fab" onclick="handleFabCreateDream()">✨</button>
 
     <!-- Modal Overlay System -->
 <div id="modalOverlay" class="modal-overlay">
@@ -1041,6 +1044,88 @@
     </div>
     <div class="modal-actions">
         <button class="ghost-btn" onclick="toggleModalProfileEdit()">✏️ Edit Profile</button>
+    </div>
+</div>
+
+<!-- Create Dream Modal -->
+<div id="createDreamModal" class="modal-popup">
+    <div class="modal-header">
+        <h2>✨ Create Your Dream</h2>
+        <button class="modal-close-btn" onclick="closeModal('createDreamModal')">✕</button>
+    </div>
+    <div class="modal-content">
+        <div class="creation-section">
+            <h3>📝 Basic Information</h3>
+            <label>Content Type<select id="modalContentType">
+                <option value="dream">💭 Dream</option>
+                <option value="fantasy">✨ Fantasy</option>
+                <option value="scenario">🎭 Scenario</option>
+                <option value="story">📖 Story</option>
+            </select></label>
+            <label>Title<input id="modalDreamTitle" type="text" placeholder="Give your creation a title..."></label>
+            <label>Genre/Mood<select id="modalDreamMood">
+                <option value="Joyful">😊 Joyful</option>
+                <option value="Determined">💪 Determined</option>
+                <option value="Peaceful">🕊️ Peaceful</option>
+                <option value="Inspired">🌟 Inspired</option>
+                <option value="Confident">🎯 Confident</option>
+                <option value="Magical">🔮 Magical</option>
+                <option value="Mysterious">🌙 Mysterious</option>
+                <option value="Adventurous">🗺️ Adventurous</option>
+                <option value="Romantic">💕 Romantic</option>
+                <option value="Sci-Fi">🚀 Sci-Fi</option>
+                <option value="Fantasy">🐉 Fantasy</option>
+                <option value="Horror">👻 Horror</option>
+            </select></label>
+        </div>
+
+        <div class="creation-section">
+            <h3>🎭 Story Elements</h3>
+            <label>Setting<input id="modalDreamSetting" type="text" placeholder="Where does your story take place? (e.g., Enchanted forest, Future city)"></label>
+            <label>Characters<textarea id="modalDreamCharacters" rows="3" placeholder="Describe your main characters... (e.g., A brave knight, A wise wizard, A curious explorer)"></textarea></label>
+            <label>Story<textarea id="modalDreamText" rows="8" placeholder="Tell your story in detail..."></textarea></label>
+            <label>Theme<input id="modalDreamTheme" type="text" placeholder="What's the central theme? (e.g., Courage, Love, Adventure)"></label>
+        </div>
+
+        <div class="creation-section">
+            <h3>⚡ Advanced Options</h3>
+            <label>Story Length<select id="modalStoryLength">
+                <option value="short">📄 Short (1-3 paragraphs)</option>
+                <option value="medium">📖 Medium (1-2 pages)</option>
+                <option value="long">📚 Long (3+ pages)</option>
+            </select></label>
+            <label>Target Audience<select id="modalTargetAudience">
+                <option value="general">👥 General</option>
+                <option value="young">🧒 Young Readers</option>
+                <option value="teen">👦 Teens</option>
+                <option value="adult">👨 Adults</option>
+            </select></label>
+            <label>Writing Style<select id="modalWritingStyle">
+                <option value="descriptive">🎨 Descriptive</option>
+                <option value="dialogue">💬 Dialogue-heavy</option>
+                <option value="action">⚔️ Action-focused</option>
+                <option value="emotional">💭 Emotional</option>
+                <option value="mysterious">🔍 Mysterious</option>
+            </select></label>
+        </div>
+        
+        <label class="file-upload">
+            Upload image <span class="small-text">(optional)</span>
+            <input id="modalDreamImage" type="file" accept="image/*">
+        </label>
+        <div class="image-preview hidden" id="modalImagePreviewWrapper">
+            <img id="modalImagePreview" alt="Dream preview">
+            <button id="modalRemoveImageBtn" class="ghost-btn small">Remove</button>
+        </div>
+        
+        <label class="checkbox-row">
+            <input id="modalDreamPublic" type="checkbox" checked>
+            <span>Share publicly to the feed</span>
+        </label>
+    </div>
+    <div class="modal-actions">
+        <button class="ghost-btn" onclick="closeModal('createDreamModal')">Cancel</button>
+        <button class="primary-btn" onclick="handleModalCreateDreamSubmit()">Post Dream</button>
     </div>
 </div>
 

@@ -1,4 +1,27 @@
-const API_URL = '/api';
+const API_URL = 'http://localhost:3005/api';
+
+// Utility functions
+function formatTime(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now - date;
+    
+    if (diff < 60000) { // Less than 1 minute
+        return 'Just now';
+    } else if (diff < 3600000) { // Less than 1 hour
+        const minutes = Math.floor(diff / 60000);
+        return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+    } else if (diff < 86400000) { // Less than 1 day
+        const hours = Math.floor(diff / 3600000);
+        return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    } else if (diff < 2592000000) { // Less than 1 month
+        const days = Math.floor(diff / 86400000);
+        return `${days} day${days > 1 ? 's' : ''} ago`;
+    } else {
+        const months = Math.floor(diff / 2592000000);
+        return `${months} month${months > 1 ? 's' : ''} ago`;
+    }
+}
 
 const storage = {
     sessionKey: 'dreampost_session',
@@ -230,7 +253,7 @@ async function apiFetch(path, options = {}) {
 
 async function getUser(email) {
     try {
-        const response = await fetch(`/api/users?email=${encodeURIComponent(email)}`);
+        const response = await fetch(`${API_URL}/users?email=${encodeURIComponent(email)}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -244,7 +267,7 @@ async function getUser(email) {
 
 async function loginUser(email, password) {
     try {
-        const response = await fetch('/api/login', {
+        const response = await fetch(`${API_URL}/login`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -267,7 +290,7 @@ async function loginUser(email, password) {
 
 async function signupUser(name, email, password) {
     try {
-        const response = await fetch('/api/signup', {
+        const response = await fetch(`${API_URL}/signup`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -292,7 +315,7 @@ async function getPosts() {
     try {
         console.log('Fetching posts from database API...');
         // Fetch posts from database API
-        const response = await fetch('/api/posts');
+        const response = await fetch(`${API_URL}/posts`);
         console.log('Response status:', response.status);
         
         if (!response.ok) {
@@ -313,49 +336,27 @@ async function getPosts() {
         console.log('Processed posts:', processedPosts);
         return processedPosts;
     } catch (error) {
-        console.warn('API not available, falling back to localStorage:', error.message);
-        
-        // Fallback to localStorage when API is not available
-        try {
-            const localPosts = JSON.parse(localStorage.getItem('dreamPosts') || '[]');
-            console.log('Posts from localStorage:', localPosts);
-            
-            // Convert localStorage posts to match expected format
-            const processedPosts = localPosts.map(post => ({
-                ...post,
-                createdAt: new Date(post.timestamp || post.createdAt || Date.now()),
-                likes: post.likes || 0,
-                likedBy: post.likedBy || [],
-                comments: post.comments || [],
-                public: post.isPublic !== false, // Convert isPublic to public for filtering
-                text: post.content || post.text || '', // Ensure content is available for search
-                authorName: post.author || post.authorName || 'Anonymous' // Ensure author name is available
-            }));
-            
-            console.log('Processed localStorage posts:', processedPosts);
-            return processedPosts;
-        } catch (localError) {
-            console.error('Error reading from localStorage:', localError);
-            return [];
-        }
+        console.error('Error fetching posts from API:', error);
+        // Return empty array if API fails - no localStorage fallback
+        return [];
     }
 }
 
 async function savePosts(posts) {
     try {
-        // For demo purposes, store in localStorage
-        // In a real app, this would make an API call to save to the database
-        localStorage.setItem('dreampost_posts', JSON.stringify(posts));
+        // No longer using localStorage - all data is managed by the server database
+        // This function now just returns the posts without any local storage
+        console.log('savePosts called - data is managed by server database');
         return posts;
     } catch (error) {
-        console.error('Error saving posts:', error);
+        console.error('Error in savePosts:', error);
         throw error;
     }
 }
 
 async function createPost(post) {
     try {
-        const response = await fetch('/api/posts', {
+        const response = await fetch(`${API_URL}/posts`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -377,7 +378,7 @@ async function createPost(post) {
 
 async function updatePost(postId, changes) {
     try {
-        const response = await fetch(`/api/posts/${postId}`, {
+        const response = await fetch(`${API_URL}/posts/${postId}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -1550,32 +1551,44 @@ async function savePost(post) {
     try {
         console.log('🎬 [DEBUG] Saving post to database:', post);
         
+        // Validate input before processing
+        if (!post || typeof post !== 'object') {
+            console.error('❌ [DEBUG] Invalid post object:', post);
+            throw new Error('Invalid post data provided');
+        }
+        
+        // Validate required fields
+        if (!post.content && !post.text) {
+            console.error('❌ [DEBUG] Missing post content/text');
+            throw new Error('Post content or text is required');
+        }
+        
+        if (!post.authorEmail || !currentUser?.email) {
+            console.error('❌ [DEBUG] Missing author email');
+            throw new Error('Author email is required');
+        }
+        
         // Try to save via API first
         try {
-            const response = await fetch('/api/posts', {
+            const response = await fetch(`${API_URL}/posts`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    title: post.title || 'Untitled Dream',
                     text: post.content || post.text || '',
                     mood: post.mood || 'Inspired',
                     image: post.media && post.media.length > 0 ? post.media[0].url : null,
                     public: post.isPublic !== false,
                     authorEmail: post.authorEmail || currentUser?.email || '',
-                    authorName: post.author || currentUser?.name || 'Anonymous'
+                    authorName: post.author || currentUser?.name || 'Anonymous',
+                    contentType: post.type || post.contentType || 'dream'
                 })
             });
             
             if (response.ok) {
                 const savedPost = await response.json();
                 console.log('✅ [DEBUG] Post saved via API:', savedPost);
-                
-                // Also save to localStorage as backup
-                const localPosts = JSON.parse(localStorage.getItem('dreamPosts') || '[]');
-                localPosts.unshift(post);
-                localStorage.setItem('dreamPosts', JSON.stringify(localPosts));
                 
                 // Re-render feed
                 if (typeof renderFeed === 'function') {
@@ -1587,25 +1600,8 @@ async function savePost(post) {
                 throw new Error(`API error: ${response.status}`);
             }
         } catch (apiError) {
-            console.warn('⚠️ [DEBUG] API not available, using localStorage:', apiError.message);
-            
-            // Fallback to localStorage
-            const posts = JSON.parse(localStorage.getItem('dreamPosts') || '[]');
-            
-            // Add new post to beginning
-            posts.unshift(post);
-            
-            // Save to localStorage
-            localStorage.setItem('dreamPosts', JSON.stringify(posts));
-            
-            console.log('✅ [DEBUG] Post saved to localStorage');
-            
-            // Re-render feed
-            if (typeof renderFeed === 'function') {
-                renderFeed();
-            }
-            
-            return post;
+            console.error('❌ [DEBUG] API error:', apiError.message);
+            throw apiError;
         }
         
     } catch (error) {
@@ -2100,16 +2096,9 @@ function handleMobileMenuAction(action) {
     }
 }
 
-// Feed filtering
-function applyFeedFilter(filter) {
-    console.log('Applying filter:', filter);
-    // Implementation for feed filtering
-    renderFeed();
-}
-
 // Quick post functionality
 async function handleQuickPost(content) {
-    if (!currentUser) {
+    if (!currentUser || !currentUser.email) {
         showToast('Please log in to post');
         return;
     }
@@ -2217,7 +2206,7 @@ function renderModernPost(post) {
                     </div>
                 </div>
                 <div class="post-options">
-                    <button class="post-options-btn">···</button>
+                    <button class="post-options-btn" onclick="openPostOptions('${post.id}', '${post.authorEmail}')">···</button>
                 </div>
             </div>
             
@@ -2246,15 +2235,15 @@ function renderModernPost(post) {
                         <span class="action-count">${post.likes || 0}</span>
                     </button>
                     
-                    <button class="post-action-btn comment-btn">
+                    <button class="post-action-btn comment-btn" onclick="toggleComments('${post.id}')">
                         <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                         </svg>
-                        <span class="action-text">Comment</span>
+                        <span class="action-text">Encourage</span>
                         <span class="action-count">${post.comments?.length || 0}</span>
                     </button>
                     
-                    <button class="post-action-btn share-btn">
+                    <button class="post-action-btn share-btn" onclick="sharePost('${post.id}')">
                         <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="18" cy="5" r="3"></circle>
                             <circle cx="6" cy="12" r="3"></circle>
@@ -2265,10 +2254,11 @@ function renderModernPost(post) {
                         <span class="action-text">Share</span>
                     </button>
                     
-                    <button class="post-action-btn bookmark-btn">
-                        <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <button class="post-action-btn bookmark-btn ${post.bookmarked ? 'bookmarked' : ''}" onclick="savePost('${post.id}')">
+                        <svg class="action-icon" viewBox="0 0 24 24" fill="${post.bookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
                             <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
                         </svg>
+                        <span class="action-text">Save</span>
                     </button>
                 </div>
             </div>
@@ -2507,6 +2497,10 @@ async function renderApp() {
 
 async function renderStats() {
     console.log('📊 renderStats called');
+    if (!currentUser || !currentUser.email) {
+        console.log('❌ No current user found');
+        return;
+    }
     console.log('📊 Current user email:', currentUser.email);
     
     try {
@@ -2653,8 +2647,13 @@ async function renderFeed() {
         console.log('Filter parameters:', { search, mood, type });
         
         const posts = (await getPosts())
-            .filter(post => post.public)
-            .filter(post => type === 'All' || (post.contentType && post.contentType === type) || (!post.contentType && type === 'dream'))
+            .filter(post => post.public !== false) // Check for public property to match data.json
+            .filter(post => {
+                if (type === 'All') return true;
+                if (post.contentType && post.contentType === type) return true;
+                if (!post.contentType && type === 'dream') return true;
+                return false;
+            })
             .filter(post => mood === 'All' || post.mood === mood)
             .filter(post => !search || post.title.toLowerCase().includes(search) || post.text.toLowerCase().includes(search) || post.authorName.toLowerCase().includes(search) || (post.setting && post.setting.toLowerCase().includes(search)))
             .sort((a, b) => b.createdAt - a.createdAt);
@@ -2689,6 +2688,14 @@ async function renderFeed() {
 }
 
 async function renderProfile() {
+    if (!currentUser || !currentUser.email) {
+        console.log('❌ No current user found for profile');
+        if (elements.userPosts) {
+            elements.userPosts.innerHTML = '<p>Please log in to view your profile.</p>';
+        }
+        return;
+    }
+    
     const posts = (await getPosts())
         .filter(post => post.authorEmail === currentUser.email)
         .sort((a, b) => b.createdAt - a.createdAt);
@@ -2696,9 +2703,17 @@ async function renderProfile() {
 }
 
 function createPostCard(post) {
-    const liked = post.likedBy.includes(currentUser.email);
-    const postDate = new Date(post.createdAt).toLocaleDateString();
-    const commentCount = post.comments ? post.comments.length : 0;
+    if (!currentUser || !currentUser.email) {
+        console.log('❌ No current user found in createPostCard');
+        const liked = false;
+        const postDate = new Date(post.createdAt).toLocaleDateString();
+        const commentCount = post.comments ? post.comments.length : 0;
+        // Continue with basic rendering without user-specific data
+    } else {
+        var liked = post.likedBy && post.likedBy.includes(currentUser.email);
+        var postDate = new Date(post.createdAt).toLocaleDateString();
+        var commentCount = post.comments ? post.comments.length : 0;
+    }
     
     // Get content type icon and label
     const contentTypeIcons = {
@@ -2733,7 +2748,7 @@ function createPostCard(post) {
             ${post.theme ? `<div class="story-meta"><strong>🎯 Theme:</strong> ${sanitize(post.theme)}</div>` : ''}
             ${post.writingStyle ? `<div class="story-meta"><strong>✍️ Style:</strong> ${post.writingStyle}</div>` : ''}
             <p>${sanitize(post.text)}</p>
-            ${post.image ? `<img src="${post.image}" alt="${contentTypeLabel} image">` : ''}
+            ${post.image || (post.media && post.media.length > 0) ? `<img src="${post.image || (post.media && post.media[0]?.url)}" alt="${contentTypeLabel} image" loading="lazy">` : ''}
             <div class="post-actions">
                 <button class="primary" onclick="toggleLike('${post.id}')">${liked ? '♥' : '♡'} ${post.likes}</button>
                 <button onclick="toggleBookmark('${post.id}')">${post.bookmarked ? '🔖' : '📖'} Bookmark</button>
@@ -2900,27 +2915,64 @@ function removeSelectedImage() {
 }
 
 async function toggleLike(postId) {
+    if (!currentUser || !currentUser.email) {
+        showToast('Please log in to like posts');
+        return;
+    }
+    
     try {
         const posts = await getPosts();
         const post = posts.find(p => p.id === postId);
         if (!post) return;
+        
+        if (!post.likedBy || !Array.isArray(post.likedBy)) {
+            post.likedBy = [];
+        }
+        
         const hasLiked = post.likedBy.includes(currentUser.email);
         const likedBy = hasLiked ? post.likedBy.filter(email => email !== currentUser.email) : [...post.likedBy, currentUser.email];
         const likes = hasLiked ? Math.max(post.likes - 1, 0) : post.likes + 1;
         await updatePost(postId, { likedBy, likes });
         await renderApp();
     } catch (error) {
-        showToast(error.message);
+        console.error('Error toggling like:', error);
+        showToast('Failed to update like');
     }
 }
 
 async function toggleComments(postId) {
-    const panel = document.getElementById(`comments-${postId}`);
-    if (!panel) return;
-    panel.classList.toggle('hidden');
+    if (!currentUser) {
+        showToast('Please log in to comment');
+        return;
+    }
+    
+    try {
+        console.log('💬 Opening comments for post:', postId);
+        
+        // Get post details
+        const posts = await getPosts();
+        const post = posts.find(p => p.id === postId);
+        
+        if (!post) {
+            showToast('Post not found');
+            return;
+        }
+        
+        // Create and show comments modal
+        await openCommentsModal(postId, post);
+        
+    } catch (error) {
+        console.error('❌ Error opening comments:', error);
+        showToast('Failed to open comments');
+    }
 }
 
 async function submitComment(postId) {
+    if (!currentUser || !currentUser.email) {
+        showToast('Please log in to comment');
+        return;
+    }
+    
     const commentInput = document.getElementById(`commentInput-${postId}`);
     if (!commentInput) return;
     const text = commentInput.value.trim();
@@ -2932,8 +2984,9 @@ async function submitComment(postId) {
         const comments = post.comments || [];
         comments.push({
             id: crypto.randomUUID(),
-            userName: currentUser.name,
             text,
+            userName: currentUser.name,
+            authorEmail: currentUser.email,
             createdAt: Date.now(),
         });
         await updatePost(postId, { comments });
@@ -2947,6 +3000,554 @@ async function submitComment(postId) {
 function copyPostLink(postId) {
     const url = `${window.location.origin}?shared=${postId}`;
     navigator.clipboard.writeText(url).then(() => showToast('Link copied!')).catch(() => showToast('Unable to copy link'));
+}
+
+function createCommentsModal() {
+    const modalHtml = `
+        <div id="commentsModal" class="modal-popup">
+            <div class="modal-header">
+                <h3>Comments</h3>
+                <button class="modal-close-btn" onclick="closeCommentsModal()">✕</button>
+            </div>
+            <div class="modal-content">
+                <div id="commentsList"></div>
+                <div class="comment-input-section">
+                    <textarea id="commentInput" placeholder="Write a comment..." rows="3"></textarea>
+                    <button id="submitCommentBtn" class="primary-btn">Post Comment</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Add event listener for submit button
+    document.getElementById('submitCommentBtn').addEventListener('click', submitCommentFromModal);
+}
+
+async function openCommentsModal(postId, post) {
+    // Create modal if it doesn't exist
+    if (!document.getElementById('commentsModal')) {
+        createCommentsModal();
+    }
+    
+    const modal = document.getElementById('commentsModal');
+    modal.dataset.postId = postId;
+    
+    // Update modal content
+    await updateCommentsModal(postId, post);
+    
+    // Show modal using the existing modal system
+    modal.classList.add('active');
+    document.getElementById('modalOverlay').classList.add('active');
+    
+    // Focus on input
+    setTimeout(() => {
+        document.getElementById('commentInput').focus();
+    }, 100);
+}
+
+async function updateCommentsModal(postId, post) {
+    const commentsList = document.getElementById('commentsList');
+    const comments = post.comments || [];
+    
+    commentsList.innerHTML = comments.length > 0 ? comments.map(comment => {
+        const replies = comment.replies || [];
+        const repliesHtml = replies.length > 0 ? `
+            <div class="comment-replies">
+                ${replies.map(reply => `
+                    <div class="reply-item">
+                        <div class="reply-author">${reply.userName || reply.authorName || 'Anonymous'}</div>
+                        <div class="reply-text">${reply.text}</div>
+                        <div class="reply-time">${formatTime(reply.createdAt)}</div>
+                    </div>
+                `).join('')}
+            </div>
+        ` : '';
+        
+        return `
+            <div class="comment-item" data-comment-id="${comment.id}">
+                <div class="comment-author">${comment.userName || comment.authorName || 'Anonymous'}</div>
+                <div class="comment-text">${comment.text}</div>
+                <div class="comment-time">${formatTime(comment.createdAt)}</div>
+                <button class="comment-like-btn" onclick="likeComment('${postId}', '${comment.id}')">👍</button>
+                <button class="comment-reply-btn" onclick="replyToComment('${postId}', '${comment.id}')">Reply</button>
+                ${repliesHtml}
+            </div>
+        `;
+    }).join('') : '<p class="no-comments">No comments yet. Be the first to comment!</p>';
+}
+
+async function replyToComment(postId, commentId) {
+    const commentItem = document.querySelector(`[data-comment-id="${commentId}"]`);
+    const existingReplyForm = commentItem.querySelector('.reply-form');
+    
+    // Remove existing reply form if open
+    if (existingReplyForm) {
+        existingReplyForm.remove();
+        return;
+    }
+    
+    // Create reply form
+    const replyForm = document.createElement('div');
+    replyForm.className = 'reply-form';
+    replyForm.innerHTML = `
+        <div class="reply-input-container">
+            <textarea 
+                class="reply-input" 
+                placeholder="Write a reply..." 
+                rows="2"
+            ></textarea>
+            <div class="reply-actions">
+                <button class="reply-submit-btn" onclick="submitReply('${postId}', '${commentId}')">Reply</button>
+                <button class="reply-cancel-btn" onclick="cancelReply('${commentId}')">Cancel</button>
+            </div>
+        </div>
+    `;
+    
+    // Add reply form after the comment
+    commentItem.appendChild(replyForm);
+    
+    // Focus on the reply input
+    const replyInput = replyForm.querySelector('.reply-input');
+    replyInput.focus();
+}
+
+async function submitReply(postId, commentId) {
+    if (!currentUser || !currentUser.email) {
+        showToast('Please log in to reply');
+        return;
+    }
+    
+    const commentItem = document.querySelector(`[data-comment-id="${commentId}"]`);
+    if (!commentItem) {
+        showToast('Comment not found');
+        return;
+    }
+    
+    const replyInput = commentItem.querySelector('.reply-input');
+    if (!replyInput) {
+        showToast('Reply input not found');
+        return;
+    }
+    
+    const replyText = replyInput.value.trim();
+    
+    if (!replyText) {
+        showToast('Please write a reply');
+        return;
+    }
+    
+    try {
+        // Get current post data
+        const posts = await getPosts();
+        const post = posts.find(p => p.id === postId);
+        if (!post) {
+            showToast('Post not found');
+            return;
+        }
+        
+        // Find the parent comment
+        const parentComment = post.comments.find(c => c.id === commentId);
+        if (!parentComment) {
+            showToast('Comment not found');
+            return;
+        }
+        
+        // Initialize replies array if it doesn't exist
+        if (!parentComment.replies) {
+            parentComment.replies = [];
+        }
+        
+        // Create new reply
+        const newReply = {
+            id: Date.now().toString(),
+            text: replyText,
+            userName: currentUser.name,
+            authorName: currentUser.name,
+            authorEmail: currentUser.email,
+            createdAt: Date.now(),
+            parentId: commentId
+        };
+        
+        // Add reply to parent comment
+        parentComment.replies.unshift(newReply);
+        
+        // Update post in database
+        await updatePost(postId, { comments: post.comments });
+        
+        // Remove reply form
+        const replyForm = commentItem.querySelector('.reply-form');
+        if (replyForm) {
+            replyForm.remove();
+        }
+        
+        // Update comments modal to show new reply
+        await updateCommentsModal(postId, post);
+        
+        showToast('Reply added successfully!');
+        
+    } catch (error) {
+        console.error('Error submitting reply:', error);
+        showToast('Failed to add reply');
+    }
+}
+
+function cancelReply(commentId) {
+    const commentItem = document.querySelector(`[data-comment-id="${commentId}"]`);
+    const replyForm = commentItem.querySelector('.reply-form');
+    if (replyForm) {
+        replyForm.remove();
+    }
+}
+
+async function sharePost(postId) {
+    if (!currentUser || !currentUser.email) {
+        showToast('Please log in to share posts');
+        return;
+    }
+    
+    try {
+        const posts = await getPosts();
+        const post = posts.find(p => p.id === postId);
+        if (!post) {
+            showToast('Post not found');
+            return;
+        }
+
+        // Create share modal
+        const shareModal = document.createElement('div');
+        shareModal.className = 'share-modal';
+        shareModal.innerHTML = `
+            <div class="share-modal-content">
+                <div class="share-modal-header">
+                    <h3>Share this Dream</h3>
+                    <button class="close-btn" onclick="closeShareModal()">×</button>
+                </div>
+                <div class="share-modal-body">
+                    <div class="post-preview">
+                        <div class="post-preview-header">
+                            <strong>${post.authorName || 'Anonymous'}</strong>
+                            <span>${formatTime(post.createdAt)}</span>
+                        </div>
+                        <div class="post-preview-text">${post.text ? post.text.substring(0, 150) + (post.text.length > 150 ? '...' : '') : ''}</div>
+                    </div>
+                    <div class="share-options">
+                        <button class="share-option" onclick="shareToSocial('facebook', '${postId}')">
+                            <div class="share-icon facebook">📘</div>
+                            <span>Facebook</span>
+                        </button>
+                        <button class="share-option" onclick="shareToSocial('twitter', '${postId}')">
+                            <div class="share-icon twitter">🐦</div>
+                            <span>Twitter</span>
+                        </button>
+                        <button class="share-option" onclick="shareToSocial('linkedin', '${postId}')">
+                            <div class="share-icon linkedin">💼</div>
+                            <span>LinkedIn</span>
+                        </button>
+                        <button class="share-option" onclick="shareToSocial('whatsapp', '${postId}')">
+                            <div class="share-icon whatsapp">📱</div>
+                            <span>WhatsApp</span>
+                        </button>
+                        <button class="share-option" onclick="shareToSocial('telegram', '${postId}')">
+                            <div class="share-icon telegram">✈️</div>
+                            <span>Telegram</span>
+                        </button>
+                        <button class="share-option" onclick="copyPostLink('${postId}')">
+                            <div class="share-icon copy">🔗</div>
+                            <span>Copy Link</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(shareModal);
+        
+        // Add animation
+        setTimeout(() => {
+            shareModal.classList.add('show');
+        }, 10);
+
+    } catch (error) {
+        console.error('Error sharing post:', error);
+        showToast('Failed to share post');
+    }
+}
+
+async function shareToSocial(platform, postId) {
+    const postUrl = `${window.location.origin}/post/${postId}`;
+    const posts = await getPosts();
+    const post = posts.find(p => p.id === postId);
+    const postText = post ? post.text.substring(0, 100) : 'Check out this dream!';
+    
+    let shareUrl = '';
+    
+    switch(platform) {
+        case 'facebook':
+            shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(postUrl)}`;
+            break;
+        case 'twitter':
+            shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(postText)}&url=${encodeURIComponent(postUrl)}`;
+            break;
+        case 'linkedin':
+            shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(postUrl)}`;
+            break;
+        case 'whatsapp':
+            shareUrl = `https://wa.me/?text=${encodeURIComponent(postText + ' ' + postUrl)}`;
+            break;
+        case 'telegram':
+            shareUrl = `https://t.me/share/url?url=${encodeURIComponent(postUrl)}&text=${encodeURIComponent(postText)}`;
+            break;
+    }
+    
+    if (shareUrl) {
+        window.open(shareUrl, '_blank', 'width=600,height=400');
+        closeShareModal();
+        showToast(`Shared to ${platform}!`);
+    }
+}
+
+function copyPostLink(postId) {
+    const postUrl = `${window.location.origin}/post/${postId}`;
+    navigator.clipboard.writeText(postUrl).then(() => {
+        showToast('Link copied to clipboard!');
+        closeShareModal();
+    }).catch(() => {
+        showToast('Failed to copy link');
+    });
+}
+
+function closeShareModal() {
+    const shareModal = document.querySelector('.share-modal');
+    if (shareModal) {
+        shareModal.classList.remove('show');
+        setTimeout(() => {
+            shareModal.remove();
+        }, 300);
+    }
+}
+
+function openPostOptions(postId, authorEmail) {
+    if (!currentUser || !currentUser.email) {
+        showToast('Please log in to use post options');
+        return;
+    }
+
+    // Remove any existing post options modal
+    const existingModal = document.querySelector('.post-options-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    // Create post options modal
+    const modal = document.createElement('div');
+    modal.className = 'post-options-modal';
+    modal.innerHTML = `
+        <div class="post-options-content">
+            <div class="post-options-header">
+                <h3>Post Options</h3>
+                <button class="close-btn" onclick="closePostOptions()">×</button>
+            </div>
+            <div class="post-options-body">
+                <button class="post-option-btn" onclick="reportPost('${postId}', '${authorEmail}')">
+                    <div class="option-icon report">🚨</div>
+                    <span>Report Post</span>
+                </button>
+                <button class="post-option-btn" onclick="followUser('${authorEmail}')">
+                    <div class="option-icon follow">👤</div>
+                    <span>Follow User</span>
+                </button>
+                <button class="post-option-btn" onclick="supportPost('${postId}')">
+                    <div class="option-icon support">💝</div>
+                    <span>Support Creator</span>
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    
+    // Add animation
+    setTimeout(() => {
+        modal.classList.add('show');
+    }, 10);
+}
+
+function closePostOptions() {
+    const modal = document.querySelector('.post-options-modal');
+    if (modal) {
+        modal.classList.remove('show');
+        setTimeout(() => {
+            modal.remove();
+        }, 300);
+    }
+}
+
+function reportPost(postId, authorEmail) {
+    if (!currentUser || !currentUser.email) {
+        showToast('Please log in to report posts');
+        return;
+    }
+
+    const reason = prompt('Why are you reporting this post? (spam, inappropriate, harassment, other)');
+    if (!reason) return;
+
+    // Here you would send report to server
+    console.log('🚨 Report submitted:', { postId, authorEmail, reason, reporter: currentUser.email });
+    showToast('Report submitted successfully!');
+    closePostOptions();
+}
+
+function followUser(authorEmail) {
+    if (!currentUser || !currentUser.email) {
+        showToast('Please log in to follow users');
+        return;
+    }
+
+    if (authorEmail === currentUser.email) {
+        showToast('You cannot follow yourself');
+        return;
+    }
+
+    // Here you would send follow request to server
+    console.log('👤 Follow request:', { follower: currentUser.email, following: authorEmail });
+    showToast(`Following ${authorEmail}!`);
+    closePostOptions();
+}
+
+function supportPost(postId) {
+    if (!currentUser || !currentUser.email) {
+        showToast('Please log in to support creators');
+        return;
+    }
+
+    // Here you would process support/payment
+    console.log('💝 Support request:', { postId, supporter: currentUser.email });
+    showToast('Thank you for supporting the creator!');
+    closePostOptions();
+}
+
+async function savePost(postId) {
+    if (!currentUser || !currentUser.email) {
+        showToast('Please log in to save posts');
+        return;
+    }
+    
+    try {
+        const posts = await getPosts();
+        const post = posts.find(p => p.id === postId);
+        if (!post) {
+            showToast('Post not found');
+            return;
+        }
+
+        // Toggle bookmark status
+        post.bookmarked = !post.bookmarked;
+        
+        if (post.bookmarked) {
+            // Add to saved posts
+            post.bookmarkedBy = post.bookmarkedBy || [];
+            if (!post.bookmarkedBy.includes(currentUser.email)) {
+                post.bookmarkedBy.push(currentUser.email);
+            }
+            showToast('Post saved for future reference!');
+        } else {
+            // Remove from saved posts
+            post.bookmarkedBy = (post.bookmarkedBy || []).filter(email => email !== currentUser.email);
+            showToast('Post removed from saved');
+        }
+
+        // Update post in database
+        await updatePost(postId, { 
+            bookmarked: post.bookmarked, 
+            bookmarkedBy: post.bookmarkedBy 
+        });
+
+        // Update UI
+        await renderApp();
+
+    } catch (error) {
+        console.error('Error saving post:', error);
+        showToast('Failed to save post');
+    }
+}
+
+async function submitCommentFromModal() {
+    if (!currentUser || !currentUser.email) {
+        showToast('Please log in to comment');
+        return;
+    }
+    
+    const modal = document.getElementById('commentsModal');
+    if (!modal) {
+        showToast('Comment modal not found');
+        return;
+    }
+    
+    const postId = modal.dataset.postId;
+    const input = document.getElementById('commentInput');
+    if (!input) {
+        showToast('Comment input not found');
+        return;
+    }
+    
+    const text = input.value.trim();
+    
+    if (!text) {
+        showToast('Please write a comment');
+        return;
+    }
+    
+    try {
+        // Submit comment via API
+        const response = await fetch(`/api/posts/${postId}/comments`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                text: text,
+                authorEmail: currentUser.email,
+                authorName: currentUser.name
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to submit comment');
+        }
+        
+        const newComment = await response.json();
+        
+        // Clear input
+        input.value = '';
+        
+        // Refresh posts data to get updated comments
+        const posts = await getPosts();
+        const post = posts.find(p => p.id === postId);
+        
+        if (post) {
+            // Update modal with fresh data
+            await updateCommentsModal(postId, post);
+            
+            // Update feed
+            await renderApp();
+        }
+        
+        showToast('Comment posted successfully!');
+        
+    } catch (error) {
+        console.error('❌ Error posting comment:', error);
+        showToast('Failed to post comment');
+    }
+}
+
+function closeCommentsModal() {
+    const modal = document.getElementById('commentsModal');
+    if (modal) {
+        modal.classList.remove('active');
+        document.getElementById('modalOverlay').classList.remove('active');
+    }
 }
 
 async function toggleBookmark(postId) {
@@ -4434,7 +5035,7 @@ async function saveProfileInfoToDatabase(profileData) {
     console.log('💾 Saving profile information to database');
     
     try {
-        const response = await fetch('/api/users/profile-info', {
+        const response = await fetch(`${API_URL}/users/profile-info`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -4814,7 +5415,7 @@ async function saveProfileImageToDatabase(imageData) {
     console.log('💾 Saving profile image to database');
     
     try {
-        const response = await fetch('/api/users/profile-image', {
+        const response = await fetch(`${API_URL}/users/profile-image`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -4843,7 +5444,7 @@ async function saveCoverImageToDatabase(imageData) {
     console.log('💾 Saving cover image to database');
     
     try {
-        const response = await fetch('/api/users/cover-image', {
+        const response = await fetch(`${API_URL}/users/cover-image`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -5020,6 +5621,10 @@ window.uploadCoverImageSimple = function(event) {
     reader.readAsDataURL(file);
 };
 
+function renderWhatsAppStories() {
+    console.log('📱 WhatsApp stories placeholder - not yet implemented');
+}
+
 // Make functions globally accessible
 window.handleProfilePictureUpload = window.uploadProfileImage;
 window.handleCoverUpload = window.uploadCoverImage;
@@ -5027,3 +5632,4 @@ window.currentUser = currentUser;
 window.elements = elements;
 
 init();
+

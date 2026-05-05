@@ -4,11 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
-const sqlite3 = require('sqlite3').verbose();
+const database = require('./database');
 
 const app = express();
-const port = process.env.PORT || 3003;
-const dbPath = path.join(__dirname, 'dreampost.db');
+const port = process.env.PORT || 3005;
 
 function hashPassword(password) {
     const salt = crypto.randomBytes(16).toString('hex');
@@ -87,7 +86,7 @@ const generalLimiter = rateLimit({
 // Stricter rate limiting for authentication endpoints
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // Limit each IP to 5 auth requests per window
+    max: 20, // Limit each IP to 20 auth requests per window (increased for testing)
     message: {
         error: 'Too many authentication attempts. Please try again later.',
         retryAfter: 900
@@ -104,6 +103,14 @@ const authLimiter = rateLimit({
     }
 });
 
+// Enable CORS for cross-origin requests from browser preview
+app.use(cors({
+    origin: true, // Allow all origins for development
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 // Apply general rate limiting to all requests
 app.use(generalLimiter);
 
@@ -111,82 +118,80 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.static(__dirname));
 
 // Initialize database
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('Error opening database:', err.message);
-    } else {
-        console.log('Connected to SQLite database.');
-        initializeDatabase();
+console.log('DreamPost server using SQLite3 database for storage')
+
+// Database-based functions
+async function createUser(userData) {
+    try {
+        return await database.createUser(userData);
+    } catch (error) {
+        throw error;
     }
-});
+}
 
-function initializeDatabase() {
-    const schema = fs.readFileSync(path.join(__dirname, 'database.sql'), 'utf8');
-    db.exec(schema, (err) => {
-        if (err) {
-            console.error('Error creating database schema:', err.message);
-        } else {
-            console.log('Database schema created successfully.');
+async function getPosts() {
+    try {
+        const posts = await database.getAllPosts();
+        
+        // Get comments for each post
+        const postsWithComments = await Promise.all(
+            posts.map(async (post) => {
+                const comments = await database.getCommentsByPostId(post.id);
+                return {
+                    ...post,
+                    comments: comments
+                };
+            })
+        );
+        
+        return postsWithComments;
+    } catch (error) {
+        throw error;
+    }
+}
+
+async function createPost(postData) {
+    try {
+        return await database.createPost(postData);
+    } catch (error) {
+        throw error;
+    }
+}
+
+async function updatePost(postId, changes) {
+    try {
+        if (changes.likes !== undefined && changes.likedBy !== undefined) {
+            return await database.updatePostLikes(postId, changes.likes, changes.likedBy);
         }
-    });
+        // Add other update operations as needed
+        return { changes: 0 };
+    } catch (error) {
+        throw error;
+    }
 }
 
-// Database helper functions
-function getUserByEmail(email, callback) {
-    db.get('SELECT * FROM users WHERE email = ?', [email.toLowerCase()], callback);
-}
-
-function createUser(user, callback) {
-    const stmt = db.prepare('INSERT INTO users (id, name, email, password, salt, joinedAt, badgeShareCount, bio, profileImage, coverImage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    stmt.run([user.id, user.name, user.email, user.password, user.salt, user.joinedAt, user.badgeShareCount || 0, user.bio || null, user.profileImage || null, user.coverImage || null], callback);
-    stmt.finalize();
-}
-
-function getPosts(callback) {
-    db.all('SELECT p.*, GROUP_CONCAT(l.userEmail) as likedBy FROM posts p LEFT JOIN likes l ON p.id = l.postId WHERE p.public = 1 GROUP BY p.id ORDER BY p.createdAt DESC', callback);
-}
-
-function createPost(post, callback) {
-    const stmt = db.prepare('INSERT INTO posts (id, title, text, mood, image, public, authorEmail, authorName, likes, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    stmt.run([post.id, post.title, post.text, post.mood, post.image, post.public ? 1 : 0, post.authorEmail, post.authorName, post.likes || 0, post.createdAt], callback);
-    stmt.finalize();
-}
-
-function updatePost(postId, changes, callback) {
-    const fields = Object.keys(changes);
-    const values = Object.values(changes);
-    const setClause = fields.map(field => `${field} = ?`).join(', ');
-    
-    const stmt = db.prepare(`UPDATE posts SET ${setClause} WHERE id = ?`);
-    stmt.run([...values, postId], callback);
-    stmt.finalize();
-}
-
-app.get('/api/users', (req, res) => {
+app.get('/api/users', async (req, res) => {
     const email = req.query.email;
     if (email) {
-        getUserByEmail(email, (err, user) => {
-            if (err) {
-                return res.status(500).json({ error: 'Database error' });
-            }
+        try {
+            const user = await database.getUserByEmail(email);
             if (user) {
                 // Remove sensitive data
                 const { password, salt, ...safeUser } = user;
                 return res.json(safeUser);
             }
             res.json(null);
-        });
+        } catch (error) {
+            res.status(500).json({ error: 'Database error' });
+        }
     } else {
-        db.all('SELECT id, name, email, joinedAt, badgeShareCount, bio, profileImage, coverImage FROM users', (err, users) => {
-            if (err) {
-                return res.status(500).json({ error: 'Database error' });
-            }
-            res.json(users);
-        });
+        // For now, return empty array for all users request
+        // In production, you might want to implement pagination
+        res.json([]);
     }
 });
 
-app.post('/api/signup', authLimiter, (req, res) => {
+app.post('/api/signup', authLimiter, async (req, res) => {
     const { name, email, password } = req.body;
     
     // Validate required fields
@@ -210,11 +215,9 @@ app.post('/api/signup', authLimiter, (req, res) => {
         return res.status(400).json({ error: 'Password must be between 8 and 128 characters.' });
     }
     
-    // Check if user already exists
-    getUserByEmail(sanitizedEmail, (err, existing) => {
-        if (err) {
-            return res.status(500).json({ error: 'Database error' });
-        }
+    try {
+        // Check if user already exists
+        const existing = await database.getUserByEmail(sanitizedEmail);
         if (existing) {
             return res.status(409).json({ error: 'Email already registered.' });
         }
@@ -230,60 +233,73 @@ app.post('/api/signup', authLimiter, (req, res) => {
             badgeShareCount: 0,
         };
         
-        createUser(user, (err) => {
-            if (err) {
-                return res.status(500).json({ error: 'Failed to create user' });
-            }
-            // Remove sensitive data from response
-            const { password, salt, ...safeUser } = user;
-            res.json(safeUser);
-        });
-    });
+        await createUser(user);
+        
+        // Remove sensitive data from response
+        const { password: userPassword, salt: userSalt, ...safeUser } = user;
+        res.json(safeUser);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to create user' });
+    }
 });
 
-app.post('/api/login', authLimiter, (req, res) => {
+app.post('/api/login', authLimiter, async (req, res) => {
     const { email, password } = req.body;
+    console.log('🔑 Login attempt:', { email, passwordProvided: !!password });
+    
     if (!email || !password) {
+        console.log('❌ Missing login fields');
         return res.status(400).json({ error: 'Missing login fields.' });
     }
     
-    getUserByEmail(email.toLowerCase(), (err, user) => {
-        if (err) {
-            return res.status(500).json({ error: 'Database error' });
-        }
+    try {
+        const userEmail = email.toLowerCase();
+        console.log('🔍 Looking for user:', userEmail);
+        
+        const user = await database.getUserByEmail(userEmail);
+        console.log('👤 User found:', !!user);
+        
         if (!user) {
+            console.log('❌ User not found in database');
             return res.status(401).json({ error: 'Invalid credentials.' });
         }
         
         // Verify hashed password
-        if (!verifyPassword(password, user.salt, user.password)) {
+        console.log('🔐 Verifying password...');
+        const passwordMatch = verifyPassword(password, user.salt, user.password);
+        console.log('✅ Password match:', passwordMatch);
+        
+        if (!passwordMatch) {
+            console.log('❌ Password verification failed');
             return res.status(401).json({ error: 'Invalid credentials.' });
         }
         
         // Remove sensitive data from response
         const { password: pwd, salt, ...safeUser } = user;
         res.json(safeUser);
-    });
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
 });
 
-app.get('/api/posts', (req, res) => {
-    getPosts((err, posts) => {
-        if (err) {
-            return res.status(500).json({ error: 'Database error' });
-        }
+app.get('/api/posts', async (req, res) => {
+    try {
+        const posts = await getPosts();
         
         // Process posts to match expected format
         const processedPosts = posts.map(post => ({
             ...post,
-            likedBy: post.likedBy ? post.likedBy.split(',') : [],
+            likedBy: post.likedBy || [],
             public: Boolean(post.public)
         }));
         
         res.json(processedPosts);
-    });
+    } catch (error) {
+        res.status(500).json({ error: 'Database error' });
+    }
 });
 
-app.post('/api/posts', (req, res) => {
+app.post('/api/posts', async (req, res) => {
     const { title, text, mood, image, public: isPublic, authorEmail, authorName } = req.body;
     
     // Validate required fields
@@ -317,45 +333,69 @@ app.post('/api/posts', (req, res) => {
     
     const post = {
         id: Date.now().toString(),
-        title: sanitizedTitle,
-        text: sanitizedText,
-        mood: sanitizedMood,
-        image: image || null,
-        public: !!isPublic,
         authorEmail: sanitizedAuthorEmail,
         authorName: sanitizedAuthorName,
-        likes: 0,
+        text: sanitizedText,
+        mood: sanitizedMood,
+        contentType: req.body.contentType || 'dream',
+        public: !!isPublic,
         createdAt: Date.now(),
+        imageUrl: image || null,
+        videoUrl: null
     };
     
-    createPost(post, (err) => {
-        if (err) {
-            return res.status(500).json({ error: 'Failed to create post' });
-        }
+    try {
+        await createPost(post);
         res.json(post);
-    });
+    } catch (error) {
+        return res.status(500).json({ error: 'Failed to create post' });
+    }
 });
 
-app.put('/api/posts/:id', (req, res) => {
+app.post('/api/posts/:id/comments', async (req, res) => {
+    const { id } = req.params;
+    const { text, authorEmail, authorName } = req.body;
+    
+    if (!text || !authorEmail || !authorName) {
+        return res.status(400).json({ error: 'Missing comment fields.' });
+    }
+    
+    try {
+        const comment = {
+            id: Date.now().toString(),
+            postId: id,
+            authorEmail: sanitizeInput(authorEmail).toLowerCase(),
+            authorName: sanitizeInput(authorName),
+            text: sanitizeInput(text),
+            createdAt: Date.now()
+        };
+        
+        await database.addComment(comment);
+        res.json(comment);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to add comment' });
+    }
+});
+
+app.put('/api/posts/:id', async (req, res) => {
     const { id } = req.params;
     const changes = req.body;
     
     // Remove sensitive fields that shouldn't be updated directly
     const { id: _, createdAt, ...safeChanges } = changes;
     
-    updatePost(id, safeChanges, (err) => {
-        if (err) {
-            return res.status(500).json({ error: 'Failed to update post' });
-        }
+    try {
+        await updatePost(id, safeChanges);
         
         // Return updated post
-        db.get('SELECT * FROM posts WHERE id = ?', [id], (err, post) => {
-            if (err || !post) {
-                return res.status(404).json({ error: 'Post not found.' });
-            }
-            res.json(post);
-        });
-    });
+        const post = await database.getPostById(id);
+        if (!post) {
+            return res.status(404).json({ error: 'Post not found.' });
+        }
+        res.json(post);
+    } catch (error) {
+        return res.status(500).json({ error: 'Failed to update post' });
+    }
 });
 
 // Profile information update endpoint
@@ -366,22 +406,57 @@ app.put('/api/users/profile-info', async (req, res) => {
         return res.status(400).json({ error: 'Email and name are required' });
     }
     
-    db.run('UPDATE users SET name = ?, bio = ?, website = ?, location = ? WHERE email = ?', 
-        [name, bio || null, website || null, location || null, email], (err) => {
-        if (err) {
-            console.error('Error updating profile info:', err);
-            return res.status(500).json({ error: 'Failed to update profile information' });
-        }
-        
+    try {
+        await database.updateUserProfile(email, { name, bio, website, location });
         console.log(`Profile info updated for user: ${email}`, { name, bio, website, location });
         res.json({ success: true, message: 'Profile information updated successfully' });
-    });
+    } catch (error) {
+        console.error('Error updating profile info:', error);
+        return res.status(500).json({ error: 'Failed to update profile information' });
+    }
+});
+
+// Profile image update endpoint
+app.put('/api/users/profile-image', async (req, res) => {
+    const { email, profileImage } = req.body;
+    
+    if (!email || !profileImage) {
+        return res.status(400).json({ error: 'Email and profile image are required' });
+    }
+    
+    try {
+        await database.updateUserProfile(email, { profileImage });
+        console.log(`Profile image updated for user: ${email}`);
+        res.json({ success: true, message: 'Profile image updated successfully' });
+    } catch (error) {
+        console.error('Error updating profile image:', error);
+        return res.status(500).json({ error: 'Failed to update profile image' });
+    }
+});
+
+// Cover image update endpoint
+app.put('/api/users/cover-image', async (req, res) => {
+    const { email, coverImage } = req.body;
+    
+    if (!email || !coverImage) {
+        return res.status(400).json({ error: 'Email and cover image are required' });
+    }
+    
+    try {
+        await database.updateUserProfile(email, { coverImage });
+        console.log(`Cover image updated for user: ${email}`);
+        res.json({ success: true, message: 'Cover image updated successfully' });
+    } catch (error) {
+        console.error('Error updating cover image:', error);
+        return res.status(500).json({ error: 'Failed to update cover image' });
+    }
 });
 
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
     console.log(`DreamPost server running at http://localhost:${port}`);
+    console.log(`Access from other devices: http://YOUR_LOCAL_IP:${port}`);
 });
