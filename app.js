@@ -1548,65 +1548,66 @@ function loadNotifications() {
  * @param {Object} post - The post object to save
  */
 async function savePost(post) {
+    console.log('📝 [DEBUG] savePost called with:', post);
+    
+    // Validate post data
+    if (!post.content && !post.text) {
+        console.error('❌ [DEBUG] Missing post content or text');
+        throw new Error('Post content or text is required');
+    }
+    
+    if (!post.authorEmail || !currentUser?.email) {
+        console.error('❌ [DEBUG] Missing author email');
+        throw new Error('Author email is required');
+    }
+    
+    console.log('✅ [DEBUG] Post validation passed, proceeding to API call...');
+    
+    // Try to save via API first
     try {
-        console.log('🎬 [DEBUG] Saving post to database:', post);
-        
-        // Validate input before processing
-        if (!post || typeof post !== 'object') {
-            console.error('❌ [DEBUG] Invalid post object:', post);
-            throw new Error('Invalid post data provided');
-        }
-        
-        // Validate required fields
-        if (!post.content && !post.text) {
-            console.error('❌ [DEBUG] Missing post content/text');
-            throw new Error('Post content or text is required');
-        }
-        
-        if (!post.authorEmail || !currentUser?.email) {
-            console.error('❌ [DEBUG] Missing author email');
-            throw new Error('Author email is required');
-        }
-        
-        // Try to save via API first
-        try {
-            const response = await fetch(`${API_URL}/posts`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    text: post.content || post.text || '',
-                    mood: post.mood || 'Inspired',
-                    image: post.media && post.media.length > 0 ? post.media[0].url : null,
-                    public: post.isPublic !== false,
-                    authorEmail: post.authorEmail || currentUser?.email || '',
-                    authorName: post.author || currentUser?.name || 'Anonymous',
-                    contentType: post.type || post.contentType || 'dream'
-                })
-            });
-            
-            if (response.ok) {
-                const savedPost = await response.json();
-                console.log('✅ [DEBUG] Post saved via API:', savedPost);
+        const apiData = {
+            title: post.title || '',
+            text: post.content || post.text || '',
+            mood: post.mood || 'Inspired',
+            imageUrl: post.media && post.media.length > 0 ? post.media[0].url : null,
+            image: post.media && post.media.length > 0 ? post.media[0].url : null,
+            public: post.isPublic !== false,
+            authorEmail: post.authorEmail || currentUser?.email || '',
+            authorName: post.author || currentUser?.name || 'Anonymous',
+            contentType: post.type || post.contentType || 'dream'
+        };
                 
-                // Re-render feed
-                if (typeof renderFeed === 'function') {
-                    renderFeed();
-                }
+        console.log('🔍 [DEBUG] API data being sent:', JSON.stringify(apiData, null, 2));
                 
-                return savedPost;
+        const response = await fetch(`${API_URL}/posts`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(apiData)
+        });
+        
+        if (response.ok) {
+            const savedPost = await response.json();
+            console.log('✅ [DEBUG] Post saved via API:', savedPost);
+                
+            // Re-render feed
+            console.log('🔄 [DEBUG] About to call renderFeed...');
+            if (typeof renderFeed === 'function') {
+                console.log('🔄 [DEBUG] renderFeed function exists, calling it...');
+                renderFeed();
+                console.log('🔄 [DEBUG] renderFeed call completed');
             } else {
-                throw new Error(`API error: ${response.status}`);
+                console.error('❌ [DEBUG] renderFeed function not found');
             }
-        } catch (apiError) {
-            console.error('❌ [DEBUG] API error:', apiError.message);
-            throw apiError;
+                
+            return savedPost;
+        } else {
+            throw new Error(`API error: ${response.status}`);
         }
-        
-    } catch (error) {
-        console.error('❌ Error saving post:', error);
-        throw error;
+    } catch (apiError) {
+        console.error('❌ [DEBUG] API error:', apiError.message);
+        throw apiError;
     }
 }
 
@@ -2213,9 +2214,9 @@ function renderModernPost(post) {
             <div class="post-content">
                 ${postTitle ? `<div class="post-title">${postTitle}</div>` : ''}
                 <div class="post-text">${postContent}</div>
-                ${(post.image || (post.media && post.media.length > 0)) ? `
-                    <div class="post-image-container">
-                        <img src="${post.image || (post.media && post.media[0]?.url)}" alt="Post image" loading="lazy">
+                ${(post.imageUrl || post.image || (post.media && post.media.length > 0)) ? `
+                    <div class="post-image-container" onclick="openImagePreview('${post.imageUrl || post.image || (post.media && post.media[0]?.url)}')">
+                        <img src="${post.imageUrl || post.image || (post.media && post.media[0]?.url)}" alt="Post image" loading="lazy">
                     </div>
                 ` : ''}
                 
@@ -2254,7 +2255,7 @@ function renderModernPost(post) {
                         <span class="action-text">Share</span>
                     </button>
                     
-                    <button class="post-action-btn bookmark-btn ${post.bookmarked ? 'bookmarked' : ''}" onclick="savePost('${post.id}')">
+                    <button class="post-action-btn bookmark-btn ${post.bookmarked ? 'bookmarked' : ''}" onclick="togglePostBookmark('${post.id}')">
                         <svg class="action-icon" viewBox="0 0 24 24" fill="${post.bookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
                             <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
                         </svg>
@@ -2668,10 +2669,28 @@ async function renderFeed() {
             // Use modern post rendering
             if (posts.length > 0) {
                 console.log('Rendering posts...');
+                console.log('Posts data:', posts); // Debug: Log post data structure
+                console.log('First post structure:', JSON.stringify(posts[0], null, 2)); // Debug: Detailed first post data
+                console.log('Post image check:', posts[0]?.image || posts[0]?.media?.[0]?.url); // Debug: Check image data
+                console.log('Post media check:', posts[0]?.media); // Debug: Check media array
+                console.log('Post content check:', posts[0]?.content || posts[0]?.text); // Debug: Check content data
+            console.log('Image data structure check:', {
+                hasImage: !!(posts[0]?.image || (posts[0]?.media && posts[0]?.media.length > 0)),
+                imageData: posts[0]?.image,
+                mediaData: posts[0]?.media,
+                mediaUrl: posts[0]?.media && posts[0]?.media.length > 0 ? posts[0]?.media[0]?.url : null
+            }); // Debug: Check image data structure
+            console.log('Image rendering check:', {
+                imageSrc: posts[0]?.image || (posts[0]?.media && posts[0]?.media.length > 0 ? posts[0]?.media[0]?.url : null),
+                mediaArray: posts[0]?.media,
+                mediaLength: posts[0]?.media?.length || 0
+            }); // Debug: Check image rendering logic
                 const postsHTML = posts.map(post => renderModernPost(post)).join('');
                 console.log('Posts HTML generated, length:', postsHTML.length);
-                elements.feedList.innerHTML = postsHTML;
-                console.log('Feed updated with posts');
+            console.log('HTML content preview:', postsHTML.substring(0, 200)); // Debug: Check actual HTML being rendered
+            console.log('DOM elements after render:', document.querySelectorAll('.post-card').length); // Debug: Check if posts are actually in DOM
+            elements.feedList.innerHTML = postsHTML;
+            console.log('Feed updated with posts');
             } else {
                 console.log('No posts to display');
                 elements.feedList.innerHTML = '<p>No matching stories yet. Try a different filter.</p>';
@@ -3088,6 +3107,8 @@ async function replyToComment(postId, commentId) {
         return;
     }
     
+
+    
     // Create reply form
     const replyForm = document.createElement('div');
     replyForm.className = 'reply-form';
@@ -3428,7 +3449,7 @@ function supportPost(postId) {
     closePostOptions();
 }
 
-async function savePost(postId) {
+async function togglePostBookmark(postId) {
     if (!currentUser || !currentUser.email) {
         showToast('Please log in to save posts');
         return;
@@ -4828,8 +4849,15 @@ async function handleModalCreateDreamSubmit() {
         console.log('🎬 [DEBUG] Modal dream post created:', dreamPost);
         
         // Save post
-        await savePost(dreamPost);
-        console.log('🎬 [DEBUG] Post saved to database');
+        try {
+            console.log('🎬 [DEBUG] About to call savePost...');
+            await savePost(dreamPost);
+            console.log('🎬 [DEBUG] Post saved to database');
+        } catch (error) {
+            console.error('❌ [DEBUG] Error in savePost:', error);
+            console.error('❌ [DEBUG] Error details:', error.message);
+            throw error;
+        }
         
         // Close modal
         closeModal('createDreamModal');
@@ -4837,6 +4865,11 @@ async function handleModalCreateDreamSubmit() {
         
         // Show success message
         showToast(`${contentType.charAt(0).toUpperCase() + contentType.slice(1)} posted successfully! 🌟`);
+        
+        // Force feed refresh to show new post
+        console.log('🔄 [DEBUG] Forcing feed refresh after dream creation...');
+        renderFeed();
+        console.log('🔄 [DEBUG] Feed refresh completed');
         
         // Switch to feed tab to show the new post
         const feedTab = document.querySelector('[data-tab="feed"]');
@@ -5597,6 +5630,44 @@ window.uploadSidebarProfileImage = function(event) {
     };
     reader.readAsDataURL(file);
 };
+
+// Image Preview Functions
+window.openImagePreview = function(imageSrc) {
+    const modal = document.getElementById('imagePreviewModal');
+    const previewImage = document.getElementById('previewImage');
+    
+    if (modal && previewImage) {
+        previewImage.src = imageSrc;
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden'; // Prevent background scrolling
+    }
+};
+
+window.closeImagePreview = function() {
+    const modal = document.getElementById('imagePreviewModal');
+    
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = ''; // Restore scrolling
+    }
+};
+
+// Close modal when clicking outside the image
+document.addEventListener('click', function(event) {
+    const modal = document.getElementById('imagePreviewModal');
+    if (modal && modal.classList.contains('active')) {
+        if (event.target === modal) {
+            closeImagePreview();
+        }
+    }
+});
+
+// Close modal with ESC key
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+        closeImagePreview();
+    }
+});
 
 window.uploadCoverImageSimple = function(event) {
     const file = event.target.files[0];

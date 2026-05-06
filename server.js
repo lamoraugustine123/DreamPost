@@ -300,7 +300,7 @@ app.get('/api/posts', async (req, res) => {
 });
 
 app.post('/api/posts', async (req, res) => {
-    const { title, text, mood, image, public: isPublic, authorEmail, authorName } = req.body;
+    const { title, text, mood, image, imageUrl, public: isPublic, authorEmail, authorName } = req.body;
     
     // Validate required fields
     if (!text || !authorEmail || !authorName) {
@@ -335,12 +335,13 @@ app.post('/api/posts', async (req, res) => {
         id: Date.now().toString(),
         authorEmail: sanitizedAuthorEmail,
         authorName: sanitizedAuthorName,
+        title: sanitizedTitle,
         text: sanitizedText,
         mood: sanitizedMood,
         contentType: req.body.contentType || 'dream',
         public: !!isPublic,
         createdAt: Date.now(),
-        imageUrl: image || null,
+        imageUrl: imageUrl || image || null,
         videoUrl: null
     };
     
@@ -425,12 +426,16 @@ app.put('/api/users/profile-image', async (req, res) => {
     }
     
     try {
+        console.log('🎬 [SERVER] Attempting to update profile image:', { email, profileImage });
+        console.log('🎬 [SERVER] Profile image data structure:', JSON.stringify({ email, profileImage }, null, 2));
         await database.updateUserProfile(email, { profileImage });
-        console.log(`Profile image updated for user: ${email}`);
+        console.log('🎬 [SERVER] Profile image updated successfully');
         res.json({ success: true, message: 'Profile image updated successfully' });
     } catch (error) {
-        console.error('Error updating profile image:', error);
-        return res.status(500).json({ error: 'Failed to update profile image' });
+        console.error('❌ [SERVER] Error updating profile image:', error.message);
+        console.error('❌ [SERVER] Error stack:', error.stack);
+        console.error('❌ [SERVER] Profile image data that failed:', JSON.stringify({ email, profileImage }, null, 2));
+        return res.status(500).json({ error: 'Failed to update profile image', details: error.message });
     }
 });
 

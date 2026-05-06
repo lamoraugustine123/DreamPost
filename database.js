@@ -1,7 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-const dbPath = path.join(__dirname, 'dreampost.db');
+const dbPath = path.join(__dirname, 'dreams.db');
 
 class Database {
     constructor() {
@@ -36,6 +36,7 @@ class Database {
                     id TEXT PRIMARY KEY,
                     authorEmail TEXT NOT NULL,
                     authorName TEXT NOT NULL,
+                    title TEXT NOT NULL,
                     text TEXT NOT NULL,
                     mood TEXT,
                     contentType TEXT DEFAULT 'dream',
@@ -157,13 +158,23 @@ class Database {
     // Post operations
     async createPost(postData) {
         return new Promise((resolve, reject) => {
-            const { id, authorEmail, authorName, text, mood, contentType, public: isPublic, createdAt, imageUrl, videoUrl } = postData;
+            console.log('🎬 [DATABASE] createPost called with:', postData);
+            const { id, authorEmail, authorName, title, text, mood, contentType, public: isPublic, createdAt, imageUrl, videoUrl } = postData;
+            
+            console.log('🎬 [DATABASE] Extracted fields:', { id, authorEmail, authorName, title, text, mood, contentType, isPublic, createdAt, imageUrl, videoUrl });
+            
             this.db.run(
-                'INSERT INTO posts (id, authorEmail, authorName, text, mood, contentType, public, createdAt, imageUrl, videoUrl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [id, authorEmail, authorName, text, mood, contentType || 'dream', isPublic ? 1 : 0, createdAt, imageUrl, videoUrl],
+                'INSERT INTO posts (id, authorEmail, authorName, title, text, mood, contentType, public, createdAt, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [id, authorEmail, authorName, title, text, mood, contentType || 'dream', isPublic ? 1 : 0, createdAt, imageUrl],
                 function(err) {
-                    if (err) reject(err);
-                    else resolve({ id, authorEmail, authorName, text, createdAt });
+                    if (err) {
+                        console.error('❌ [DATABASE] createPost error:', err.message);
+                        console.error('❌ [DATABASE] Error details:', err);
+                        reject(err);
+                    } else {
+                        console.log('✅ [DATABASE] createPost success');
+                        resolve({ id, authorEmail, authorName, text, createdAt });
+                    }
                 }
             );
         });
@@ -306,7 +317,7 @@ class Database {
                  FROM bookmarks b
                  JOIN posts p ON b.postId = p.id
                  WHERE b.userEmail = ?
-                 ORDER BY b.createdAt DESC`,
+                 ORDER BY b.createdAt DESC`
                 [userEmail],
                 (err, rows) => {
                     if (err) reject(err);
