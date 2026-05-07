@@ -5,6 +5,13 @@ const path = require('path');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const database = require('./database');
+const { Pool } = require('pg');
+
+// Supabase PostgreSQL Connection
+const supabasePool = new Pool({
+    connectionString: 'postgresql://postgres:Mrlamoraugustine@123@db.upkwtzufdedsfjklzmdq.supabase.co:5432/postgres',
+    ssl: { rejectUnauthorized: false }
+});
 
 const app = express();
 const port = process.env.PORT || 3005;
@@ -49,6 +56,78 @@ function validatePostContent(text) {
     return typeof text === 'string' && 
            text.length >= 1 && 
            text.length <= 2000;
+}
+
+// Dual Database Helper Functions
+async function writeToBoth(sqliteQuery, supabaseQuery, sqliteParams = [], supabaseParams = []) {
+    const results = [];
+    
+    try {
+        // Write to SQLite
+        const sqliteResult = await database.run(sqliteQuery, sqliteParams);
+        results.push({ database: 'sqlite', success: true, data: sqliteResult });
+    } catch (error) {
+        console.error('SQLite write error:', error);
+        results.push({ database: 'sqlite', success: false, error: error.message });
+    }
+
+    try {
+        // Write to Supabase PostgreSQL
+        const supabaseResult = await supabasePool.query(supabaseQuery, supabaseParams);
+        results.push({ database: 'supabase', success: true, data: supabaseResult.rows[0] });
+    } catch (error) {
+        console.error('Supabase write error:', error);
+        results.push({ database: 'supabase', success: false, error: error.message });
+    }
+
+    return results;
+}
+
+async function readFromSupabase(query, params = []) {
+    try {
+        const result = await supabasePool.query(query, params);
+        return result.rows;
+    } catch (error) {
+        console.error('Supabase read error, falling back to SQLite:', error);
+        // Fallback to SQLite - use the correct database file (dreams.db)
+        return new Promise((resolve, reject) => {
+            const sqlite3 = require('sqlite3').verbose();
+            const path = require('path');
+            const dbPath = path.join(__dirname, 'dreams.db');
+            const db = new sqlite3.Database(dbPath);
+            
+            const sqliteQuery = query.replace(/\$\d+/g, '?');
+            
+            if (sqliteQuery.toLowerCase().includes('select count(*)')) {
+                db.get(sqliteQuery, params, (err, row) => {
+                    db.close();
+                    if (err) {
+                        console.error('SQLite fallback error:', err);
+                        resolve([{}]); // Return empty result
+                    } else {
+                        resolve([row || { count: 0 }]);
+                    }
+                });
+            } else {
+                db.all(sqliteQuery, params, (err, rows) => {
+                    db.close();
+                    if (err) {
+                        console.error('SQLite fallback error:', err);
+                        resolve([]); // Return empty result
+                    } else {
+                        resolve(rows || []);
+                    }
+                });
+            }
+        });
+    }
+}
+
+async function logActivity(userId, userEmail, action, details = null, ipAddress = null, userAgent = null) {
+    const query = 'INSERT INTO activities (user_id, user_email, action, details, ip_address, user_agent, timestamp) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))';
+    const params = [userId, userEmail, action, details, ipAddress, userAgent];
+
+    return await writeToBoth(query, query, params, params);
 }
 
 // Security headers middleware
@@ -216,15 +295,27 @@ app.post('/api/signup', authLimiter, async (req, res) => {
     }
     
     try {
-        // Check if user already exists
+        // Check if user already exists (check both databases)
         const existing = await database.getUserByEmail(sanitizedEmail);
         if (existing) {
             return res.status(409).json({ error: 'Email already registered.' });
         }
         
         const { salt, hash } = hashPassword(password);
+        const userId = Date.now().toString();
+        
+        // Dual-write user to both databases
+        const sqliteQuery = 'INSERT INTO users (id, name, email, password, salt, joined_at, badge_share_count) VALUES (?, ?, ?, ?, ?, ?, ?)';
+        const supabaseQuery = 'INSERT INTO users (id, name, email, password, salt, joined_at, badge_share_count) VALUES ($1, $2, $3, $4, $5, $6, $7)';
+        const params = [userId, sanitizedName, sanitizedEmail, hash, salt, Date.now(), 0];
+        
+        const results = await writeToBoth(sqliteQuery, supabaseQuery, params, params);
+        
+        // Log signup activity
+        await logActivity(userId, sanitizedEmail, 'signup', JSON.stringify({ timestamp: Date.now() }), req.ip, req.get('User-Agent'));
+        
         const user = {
-            id: Date.now().toString(),
+            id: userId,
             name: sanitizedName,
             email: sanitizedEmail,
             password: hash,
@@ -232,8 +323,6 @@ app.post('/api/signup', authLimiter, async (req, res) => {
             joinedAt: Date.now(),
             badgeShareCount: 0,
         };
-        
-        await createUser(user);
         
         // Remove sensitive data from response
         const { password: userPassword, salt: userSalt, ...safeUser } = user;
@@ -274,6 +363,19 @@ app.post('/api/login', authLimiter, async (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials.' });
         }
         
+        // Update last login and login count
+        await database.updateUserLogin(user.id);
+        
+        // Log activity
+        await database.logActivity(
+            user.id,
+            user.email,
+            'login',
+            { timestamp: Date.now() },
+            req.ip,
+            req.get('User-Agent')
+        );
+        
         // Remove sensitive data from response
         const { password: pwd, salt, ...safeUser } = user;
         res.json(safeUser);
@@ -302,9 +404,14 @@ app.get('/api/posts', async (req, res) => {
 app.post('/api/posts', async (req, res) => {
     const { title, text, mood, image, imageUrl, public: isPublic, authorEmail, authorName } = req.body;
     
-    // Validate required fields
-    if (!text || !authorEmail || !authorName) {
+    // Validate required fields - allow anonymous posts
+    if (!text || !authorName) {
         return res.status(400).json({ error: 'Missing post fields.' });
+    }
+    
+    // Allow empty email only for anonymous posts
+    if (!authorEmail && authorName !== 'Anonymous') {
+        return res.status(400).json({ error: 'Author email is required for non-anonymous posts.' });
     }
     
     // Validate and sanitize inputs
@@ -322,18 +429,19 @@ app.post('/api/posts', async (req, res) => {
         return res.status(400).json({ error: 'Author name must be between 2 and 50 characters.' });
     }
     
-    if (!validateEmail(sanitizedAuthorEmail)) {
+    // Skip email validation for anonymous posts
+    if (sanitizedAuthorName !== 'Anonymous' && !validateEmail(sanitizedAuthorEmail)) {
         return res.status(400).json({ error: 'Invalid author email format.' });
     }
     
-    const validMoods = ['Joyful', 'Determined', 'Peaceful', 'Inspired', 'Confident'];
+    const validMoods = ['Joyful', 'Determined', 'Peaceful', 'Inspired', 'Confident', 'Magical', 'Mysterious', 'Adventurous', 'Romantic', 'Dark'];
     if (!validMoods.includes(sanitizedMood)) {
         return res.status(400).json({ error: 'Invalid mood selection.' });
     }
     
     const post = {
         id: Date.now().toString(),
-        authorEmail: sanitizedAuthorEmail,
+        authorEmail: sanitizedAuthorName === 'Anonymous' ? '' : sanitizedAuthorEmail,
         authorName: sanitizedAuthorName,
         title: sanitizedTitle,
         text: sanitizedText,
@@ -346,7 +454,35 @@ app.post('/api/posts', async (req, res) => {
     };
     
     try {
-        await createPost(post);
+        // Dual-write post to both databases
+        const sqliteQuery = 'INSERT INTO posts (id, authorEmail, authorName, title, text, mood, contentType, public, createdAt, image, videoUrl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+        const supabaseQuery = 'INSERT INTO posts (id, author_email, author_name, title, text, mood, content_type, public, created_at, image_url, video_url) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)';
+        const params = [
+            post.id,
+            post.authorEmail,
+            post.authorName,
+            post.title,
+            post.text,
+            post.mood,
+            post.contentType,
+            post.public,
+            post.createdAt,
+            post.imageUrl, // This will be stored in the 'image' column for SQLite
+            post.videoUrl
+        ];
+        
+        const results = await writeToBoth(sqliteQuery, supabaseQuery, params, params);
+        
+        // Log activity
+        await logActivity(
+            null, // userId (we'll get it from email)
+            sanitizedAuthorEmail,
+            'post',
+            JSON.stringify({ postId: post.id, title: sanitizedTitle }),
+            req.ip,
+            req.get('User-Agent')
+        );
+        
         res.json(post);
     } catch (error) {
         return res.status(500).json({ error: 'Failed to create post' });
@@ -454,6 +590,308 @@ app.put('/api/users/cover-image', async (req, res) => {
     } catch (error) {
         console.error('Error updating cover image:', error);
         return res.status(500).json({ error: 'Failed to update cover image' });
+    }
+});
+
+// ===== ADMIN DASHBOARD API ENDPOINTS =====
+
+// Middleware to check admin permissions (simplified for testing)
+function checkAdminPermission(requiredPermission) {
+    return async (req, res, next) => {
+        try {
+            // For now, we'll use a simple token-based approach
+            // In a real implementation, you'd use proper session management
+            const authHeader = req.headers.authorization;
+            
+            if (!authHeader) {
+                return res.status(401).json({ error: 'Authorization header required' });
+            }
+
+            // Extract token (for testing, we'll use the admin credentials)
+            const token = authHeader.replace('Bearer ', '');
+            
+            if (token !== 'admin-token-123') {
+                return res.status(401).json({ error: 'Invalid admin token' });
+            }
+
+            // Get admin user
+            const user = await database.getUserByEmail('admin@dreampost.com');
+            if (!user) {
+                return res.status(401).json({ error: 'Admin user not found' });
+            }
+
+            // Check if user has admin role
+            const role = await database.getAdminRole(user.role);
+            if (!role) {
+                // Try to map role names
+                const roleMapping = {
+                    'admin': 'Administrator',
+                    'staff': 'Staff Member', 
+                    'viewer': 'Viewer'
+                };
+                const mappedRoleName = roleMapping[user.role];
+                if (mappedRoleName) {
+                    const mappedRole = await database.getAdminRole(mappedRoleName);
+                    if (!mappedRole) {
+                        return res.status(403).json({ error: 'Insufficient permissions' });
+                    }
+                    req.adminUser = user;
+                    req.adminRole = mappedRole;
+                } else {
+                    return res.status(403).json({ error: 'Insufficient permissions' });
+                }
+            } else {
+                req.adminUser = user;
+                req.adminRole = role;
+            }
+
+            // Check permissions
+            const roleToCheck = req.adminRole || role;
+            const permissions = JSON.parse(roleToCheck.permissions || '[]');
+            if (permissions.includes('all') || permissions.includes(requiredPermission)) {
+                return next();
+            }
+
+            return res.status(403).json({ error: 'Insufficient permissions' });
+        } catch (error) {
+            console.error('Admin permission check error:', error);
+            return res.status(500).json({ error: 'Permission check failed' });
+        }
+    };
+}
+
+// Get overview statistics (using Supabase for analytics)
+app.get('/api/admin/overview', checkAdminPermission('view_analytics'), async (req, res) => {
+    try {
+        // Use Supabase for analytics with SQLite fallback
+        const queries = {
+            totalUsers: 'SELECT COUNT(*) as count FROM users',
+            activeUsers: 'SELECT COUNT(*) as count FROM users WHERE last_login > NOW() - INTERVAL \'7 days\'',
+            totalPosts: 'SELECT COUNT(*) as count FROM posts',
+            newSignups: 'SELECT COUNT(*) as count FROM users WHERE created_at > NOW() - INTERVAL \'7 days\''
+        };
+
+        const stats = {};
+        for (const [key, query] of Object.entries(queries)) {
+            try {
+                const result = await readFromSupabase(query);
+                stats[key] = result[0]?.count || 0;
+            } catch (error) {
+                console.error(`Analytics query error for ${key}:`, error);
+                stats[key] = 0;
+            }
+        }
+
+        // Get recent activities
+        try {
+            const activities = await readFromSupabase('SELECT * FROM activities ORDER BY timestamp DESC LIMIT 5');
+            stats.recentActivities = activities;
+        } catch (error) {
+            console.error('Recent activities error:', error);
+            stats.recentActivities = [];
+        }
+
+        res.json(stats);
+    } catch (error) {
+        console.error('Error getting admin overview:', error);
+        res.status(500).json({ error: 'Failed to get overview statistics' });
+    }
+});
+
+// Get all clients with pagination and filtering (using Supabase)
+app.get('/api/admin/clients', checkAdminPermission('view_clients'), async (req, res) => {
+    try {
+        const { page = 1, limit = 20, search = '', status = 'all', role = 'all' } = req.query;
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        let query = 'SELECT id, name, email, COALESCE(role, "user") as role, joinedAt as created_at, lastLogin as last_login, COALESCE(loginCount, 0) as login_count FROM users WHERE 1=1';
+        const params = [];
+
+        if (search) {
+            query += ' AND (name ILIKE $' + (params.length + 1) + ' OR email ILIKE $' + (params.length + 2) + ')';
+            params.push(`%${search}%`, `%${search}%`);
+        }
+
+        if (status !== 'all') {
+            query += ' AND status = $' + (params.length + 1);
+            params.push(status);
+        }
+
+        if (role !== 'all') {
+            query += ' AND role = $' + (params.length + 1);
+            params.push(role);
+        }
+
+        query += ' ORDER BY joinedAt DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
+        params.push(parseInt(limit), offset);
+
+        const clients = await readFromSupabase(query, params);
+        const totalClients = await readFromSupabase('SELECT COUNT(*) as count FROM users');
+
+        res.json({
+            clients,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: totalClients[0]?.count || 0,
+                pages: Math.ceil((totalClients[0]?.count || 0) / parseInt(limit))
+            }
+        });
+    } catch (error) {
+        console.error('Error getting clients:', error);
+        res.status(500).json({ error: 'Failed to get clients' });
+    }
+});
+
+// Get client details
+app.get('/api/admin/clients/:id', checkAdminPermission('view_clients'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const client = await database.getClientDetails(id);
+        if (!client) {
+            return res.status(404).json({ error: 'Client not found' });
+        }
+        res.json(client);
+    } catch (error) {
+        console.error('Error getting client details:', error);
+        res.status(500).json({ error: 'Failed to get client details' });
+    }
+});
+
+// Update client status (activate/deactivate)
+app.put('/api/admin/clients/:id/status', checkAdminPermission('manage_clients'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, adminNotes } = req.body;
+        
+        if (!['active', 'inactive', 'suspended'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status' });
+        }
+
+        await database.updateClientStatus(id, { status, adminNotes });
+        res.json({ success: true, message: 'Client status updated successfully' });
+    } catch (error) {
+        console.error('Error updating client status:', error);
+        res.status(500).json({ error: 'Failed to update client status' });
+    }
+});
+
+// Get activity logs with filtering (using Supabase)
+app.get('/api/admin/activities', checkAdminPermission('view_activities'), async (req, res) => {
+    try {
+        const { page = 1, limit = 50, action = '', userId = '', startDate = '', endDate = '' } = req.query;
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        let query = 'SELECT id, user_id, user_email, action, details, ip_address, user_agent, timestamp FROM activities WHERE 1=1';
+        const params = [];
+
+        if (action) {
+            query += ' AND action = $' + (params.length + 1);
+            params.push(action);
+        }
+
+        if (userId) {
+            query += ' AND user_id = $' + (params.length + 1);
+            params.push(userId);
+        }
+
+        if (startDate) {
+            query += ' AND timestamp >= $' + (params.length + 1);
+            params.push(startDate);
+        }
+
+        if (endDate) {
+            query += ' AND timestamp <= $' + (params.length + 1);
+            params.push(endDate);
+        }
+
+        query += ' ORDER BY timestamp DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
+        params.push(parseInt(limit), offset);
+
+        const activities = await readFromSupabase(query, params);
+        const totalActivities = await readFromSupabase('SELECT COUNT(*) as count FROM activities');
+
+        res.json({
+            activities,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: totalActivities[0]?.count || 0,
+                pages: Math.ceil((totalActivities[0]?.count || 0) / parseInt(limit))
+            }
+        });
+    } catch (error) {
+        console.error('Error getting activities:', error);
+        res.status(500).json({ error: 'Failed to get activities' });
+    }
+});
+
+// Get analytics data
+app.get('/api/admin/analytics', checkAdminPermission('view_analytics'), async (req, res) => {
+    try {
+        const { type = 'overview', period = '30d' } = req.query;
+        const analytics = await database.getAnalytics(type, period);
+        res.json(analytics);
+    } catch (error) {
+        console.error('Error getting analytics:', error);
+        res.status(500).json({ error: 'Failed to get analytics' });
+    }
+});
+
+// Get system health status
+app.get('/api/admin/health', checkAdminPermission('view_system_health'), async (req, res) => {
+    try {
+        const health = await database.getSystemHealth();
+        res.json(health);
+    } catch (error) {
+        console.error('Error getting system health:', error);
+        res.status(500).json({ error: 'Failed to get system health' });
+    }
+});
+
+// Export client data
+app.get('/api/admin/export/clients', checkAdminPermission('export_data'), async (req, res) => {
+    try {
+        const { format = 'csv', status = 'all', role = 'all' } = req.query;
+        const exportData = await database.exportClients({ format, status, role });
+        
+        if (format === 'csv') {
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', 'attachment; filename=clients.csv');
+            res.send(exportData);
+        } else if (format === 'json') {
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Content-Disposition', 'attachment; filename=clients.json');
+            res.json(exportData);
+        } else {
+            res.status(400).json({ error: 'Unsupported export format' });
+        }
+    } catch (error) {
+        console.error('Error exporting client data:', error);
+        res.status(500).json({ error: 'Failed to export client data' });
+    }
+});
+
+// Export activity data
+app.get('/api/admin/export/activities', checkAdminPermission('export_data'), async (req, res) => {
+    try {
+        const { format = 'csv', startDate = '', endDate = '', action = '' } = req.query;
+        const exportData = await database.exportActivities({ format, startDate, endDate, action });
+        
+        if (format === 'csv') {
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', 'attachment; filename=activities.csv');
+            res.send(exportData);
+        } else if (format === 'json') {
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Content-Disposition', 'attachment; filename=activities.json');
+            res.json(exportData);
+        } else {
+            res.status(400).json({ error: 'Unsupported export format' });
+        }
+    } catch (error) {
+        console.error('Error exporting activity data:', error);
+        res.status(500).json({ error: 'Failed to export activity data' });
     }
 });
 

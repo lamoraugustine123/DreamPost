@@ -1556,7 +1556,8 @@ async function savePost(post) {
         throw new Error('Post content or text is required');
     }
     
-    if (!post.authorEmail || !currentUser?.email) {
+    // Allow anonymous posts if author is "Anonymous"
+    if (!post.authorEmail && post.author !== 'Anonymous' && !currentUser?.email) {
         console.error('❌ [DEBUG] Missing author email');
         throw new Error('Author email is required');
     }
@@ -1565,6 +1566,7 @@ async function savePost(post) {
     
     // Try to save via API first
     try {
+        const isAnonymous = post.author === 'Anonymous' || (!post.authorEmail && !currentUser?.email);
         const apiData = {
             title: post.title || '',
             text: post.content || post.text || '',
@@ -1572,8 +1574,8 @@ async function savePost(post) {
             imageUrl: post.media && post.media.length > 0 ? post.media[0].url : null,
             image: post.media && post.media.length > 0 ? post.media[0].url : null,
             public: post.isPublic !== false,
-            authorEmail: post.authorEmail || currentUser?.email || '',
-            authorName: post.author || currentUser?.name || 'Anonymous',
+            authorEmail: isAnonymous ? '' : (post.authorEmail || currentUser?.email || ''),
+            authorName: isAnonymous ? 'Anonymous' : (post.author || currentUser?.name || 'Anonymous'),
             contentType: post.type || post.contentType || 'dream'
         };
                 
@@ -2050,6 +2052,11 @@ function handleSidebarAction(action) {
     }
 }
 
+function openAdminDashboard() {
+    console.log('👤 Opening admin dashboard...');
+    window.open('admin-dashboard.html', '_blank');
+}
+
 function handleUserDropdownAction(action) {
     console.log('👤 User dropdown action:', action);
     switch (action) {
@@ -2064,6 +2071,10 @@ function handleUserDropdownAction(action) {
         case 'analytics':
             console.log('👤 Navigating to analytics from dropdown');
             changeView('analytics');
+            break;
+        case 'admin':
+            console.log('👤 Opening admin dashboard');
+            openAdminDashboard();
             break;
         case 'logout':
             console.log('👤 Logging out from dropdown');
@@ -2147,6 +2158,16 @@ function updateUserInterface() {
     
     if (dropdownUsername) dropdownUsername.textContent = userName;
     if (dropdownEmail) dropdownEmail.textContent = userEmail;
+    
+    // Show/hide admin dashboard link based on user role
+    const adminDashboardLink = document.querySelector('.admin-only');
+    if (adminDashboardLink) {
+        if (currentUser.role === 'admin' || currentUser.role === 'staff') {
+            adminDashboardLink.style.display = 'flex';
+        } else {
+            adminDashboardLink.style.display = 'none';
+        }
+    }
 }
 
 // Sanitize text to prevent duplication

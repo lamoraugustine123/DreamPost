@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DreamPost Admin Dashboard</title>
+    <link rel="stylesheet" href="app.css">
+    <link rel="stylesheet" href="admin-dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="admin-dashboard">
+    <!-- Header with Horizontal Navigation -->
+    <header class="admin-header">
+        <div class="header-content">
+            <div class="header-brand">
+                <h1><i class="fas fa-crown"></i> DreamPost Admin</h1>
+            </div>
+            <nav class="header-nav">
+                <a href="#overview" class="nav-item active" data-section="overview">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Overview</span>
+                </a>
+                <a href="#clients" class="nav-item" data-section="clients">
+                    <i class="fas fa-users"></i>
+                    <span>Clients</span>
+                </a>
+                <a href="#activities" class="nav-item" data-section="activities">
+                    <i class="fas fa-history"></i>
+                    <span>Activities</span>
+                </a>
+                <a href="#analytics" class="nav-item" data-section="analytics">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>Analytics</span>
+                </a>
+                <a href="#system" class="nav-item" data-section="system">
+                    <i class="fas fa-heartbeat"></i>
+                    <span>System</span>
+                </a>
+            </nav>
+            <div class="header-user">
+                <div class="user-info">
+                    <span class="user-name" id="adminUserName">Admin User</span>
+                    <span class="user-role" id="adminUserRole">Administrator</span>
+                </div>
+                <button class="logout-btn" onclick="adminLogout()">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Logout
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="admin-main">
+        <!-- Overview Section -->
+        <section id="overview" class="admin-section active">
+            <div class="section-header">
+                <h2><i class="fas fa-chart-line"></i> Overview</h2>
+                <div class="section-actions">
+                    <button class="btn btn-primary" onclick="loadOverviewData()">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-number" id="totalUsers">0</div>
+                        <div class="stat-label">Total Users</div>
+                        <div class="stat-change" id="userGrowth">+0%</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-user-check"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-number" id="activeUsers">0</div>
+                        <div class="stat-label">Active Users</div>
+                        <div class="stat-change" id="activeRate">0%</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-cloud"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-number" id="totalPosts">0</div>
+                        <div class="stat-label">Total Dreams</div>
+                        <div class="stat-change" id="postGrowth">+0%</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-user-plus"></i>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-number" id="newSignups">0</div>
+                        <div class="stat-label">New Signups</div>
+                        <div class="stat-change" id="signupGrowth">+0%</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="content-row">
+                <div class="content-half">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-chart-area"></i> User Growth</h3>
+                        </div>
+                        <div class="card-content">
+                            <canvas id="userGrowthChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="content-half">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-chart-bar"></i> Activity Trends</h3>
+                        </div>
+                        <div class="card-content">
+                            <canvas id="activityChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="content-row">
+                <div class="card">
+                    <div class="card-header">
+                            <h3><i class="fas fa-clock"></i> Recent Activities</h3>
+                        <div class="section-actions">
+                            <button class="btn btn-secondary" onclick="loadRecentActivities()">
+                                <i class="fas fa-sync"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <div id="recentActivitiesList" class="activity-list">
+                            <div class="loading">Loading activities...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Clients Section -->
+        <section id="clients" class="admin-section">
+            <div class="section-header">
+                <h2><i class="fas fa-users"></i> Client Management</h2>
+                <div class="section-actions">
+                    <div class="filters">
+                        <input type="text" id="clientSearch" placeholder="Search clients..." class="search-input">
+                        <select id="clientStatusFilter" class="filter-select">
+                            <option value="all">All Status</option>
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                            <option value="suspended">Suspended</option>
+                        </select>
+                        <select id="clientRoleFilter" class="filter-select">
+                            <option value="all">All Roles</option>
+                            <option value="admin">Admin</option>
+                            <option value="staff">Staff</option>
+                            <option value="user">User</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="loadClientsData()">
+                            <i class="fas fa-search"></i> Search
+                        </button>
+                        <button class="btn btn-secondary" onclick="exportClients()">
+                            <i class="fas fa-download"></i> Export
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-content">
+                    <div class="table-container">
+                        <table id="clientsTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Joined</th>
+                                    <th>Last Login</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td colspan="8" class="loading">Loading clients...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="clientsPagination" class="pagination"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Activities Section -->
+        <section id="activities" class="admin-section">
+            <div class="section-header">
+                <h2><i class="fas fa-history"></i> Activity Logs</h2>
+                <div class="section-actions">
+                    <div class="filters">
+                        <select id="activityTypeFilter" class="filter-select">
+                            <option value="">All Actions</option>
+                            <option value="login">Login</option>
+                            <option value="signup">Signup</option>
+                            <option value="post">Post</option>
+                            <option value="like">Like</option>
+                            <option value="comment">Comment</option>
+                        </select>
+                        <input type="date" id="activityStartDate" class="date-input" placeholder="Start Date">
+                        <input type="date" id="activityEndDate" class="date-input" placeholder="End Date">
+                        <button class="btn btn-primary" onclick="loadActivitiesData()">
+                            <i class="fas fa-filter"></i> Filter
+                        </button>
+                        <button class="btn btn-secondary" onclick="exportActivities()">
+                            <i class="fas fa-download"></i> Export
+                        </button>
+                    </div>
+                </div>
+            
+            <div class="card">
+                <div class="card-content">
+                    <div class="table-container">
+                        <table id="activitiesTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>User</th>
+                                    <th>Action</th>
+                                    <th>Details</th>
+                                    <th>IP Address</th>
+                                    <th>Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td colspan="6" class="loading">Loading activities...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="activitiesPagination" class="pagination"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Analytics Section -->
+        <section id="analytics" class="admin-section">
+            <div class="section-header">
+                <h2><i class="fas fa-chart-bar"></i> Analytics</h2>
+                <div class="section-actions">
+                    <select id="analyticsPeriod" class="filter-select">
+                        <option value="7d">Last 7 Days</option>
+                        <option value="30d">Last 30 Days</option>
+                        <option value="90d">Last 90 Days</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="loadAnalyticsData()">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            
+            <div class="content-row">
+                <div class="card">
+                    <div class="card-header">
+                            <h3><i class="fas fa-chart-pie"></i> User Distribution</h3>
+                        </div>
+                        <div class="card-content">
+                            <canvas id="userDistributionChart"></canvas>
+                        </div>
+                    </div>
+                <div class="card">
+                    <div class="card-header">
+                            <h3><i class="fas fa-chart-line"></i> Engagement Metrics</h3>
+                        </div>
+                        <div class="card-content">
+                            <canvas id="engagementChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- System Section -->
+        <section id="system" class="admin-section">
+            <div class="section-header">
+                <h2><i class="fas fa-heartbeat"></i> System Health</h2>
+                <div class="section-actions">
+                    <button class="btn btn-primary" onclick="loadSystemHealthData()">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            
+            <div class="content-row">
+                <div class="card">
+                    <div class="card-header">
+                            <h3><i class="fas fa-database"></i> Database Status</h3>
+                    </div>
+                    <div class="card-content">
+                        <div class="health-item">
+                            <div class="health-label">Connection</div>
+                            <div class="health-value" id="dbStatus">Checking...</div>
+                        </div>
+                        <div class="health-item">
+                            <div class="health-label">Last Check</div>
+                            <div class="health-value" id="dbLastCheck">-</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                            <h3><i class="fas fa-server"></i> API Status</h3>
+                    </div>
+                    <div class="card-content">
+                        <div class="health-item">
+                            <div class="health-label">Status</div>
+                            <div class="health-value" id="apiStatus">Checking...</div>
+                        </div>
+                        <div class="health-item">
+                            <div class="health-label">Error Count</div>
+                            <div class="health-value" id="errorCount">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Client Detail Modal -->
+    <div id="clientModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-user"></i> Client Details</h3>
+                <button class="modal-close" onclick="closeClientModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="clientDetailContent">
+                    Loading client details...
+                </div>
+            </div>
+        </div>
+    </body>
+    <script src="admin-dashboard.js"></script>
+</html>
