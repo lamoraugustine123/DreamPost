@@ -920,19 +920,61 @@ function attachEventListeners() {
         });
     }
     
-    // Click outside to close functionality for profile modal
-    document.addEventListener('click', function(event) {
-        const profileModal = document.getElementById('userProfileModal');
-        if (profileModal && !profileModal.classList.contains('hidden')) {
-            const modalContainer = document.querySelector('.profile-modal-container');
+    // Click outside to close functionality for profile modal (improved)
+    let modalCloseHandler = null;
+    
+    window.openUserProfile = function() {
+        console.log('👤 Opening captivating profile popup');
+        
+        const modal = document.getElementById('userProfileModal');
+        if (modal) {
+            modal.classList.remove('hidden');
             
-            // Simple check: if click is outside modal container, close it
-            if (modalContainer && !modalContainer.contains(event.target)) {
-                console.log('🖱️ Click outside modal detected, closing...');
-                closeUserProfileModal();
+            // Trigger opening animation
+            setTimeout(() => {
+                modal.classList.add('active');
+            }, 50);
+            
+            // Load user data into modal
+            loadUserProfileModalData();
+            
+            // Attach click-outside-to-close handler (only when modal is open)
+            if (!modalCloseHandler) {
+                modalCloseHandler = function(event) {
+                    const profileModal = document.getElementById('userProfileModal');
+                    const modalContainer = document.querySelector('.profile-modal-container');
+                    const sidebarProfileCard = document.getElementById('sidebarProfileCard');
+                    
+                    // Close if click is outside modal container AND outside sidebar profile card
+                    if (modalContainer && 
+                        !modalContainer.contains(event.target) && 
+                        (!sidebarProfileCard || !sidebarProfileCard.contains(event.target))) {
+                        console.log('🖱️ Click outside modal detected, closing...');
+                        closeUserProfileModal();
+                    }
+                };
+                document.addEventListener('click', modalCloseHandler);
             }
         }
-    });
+    };
+    
+    window.closeUserProfileModal = function() {
+        console.log('👤 Closing profile popup');
+        
+        const modal = document.getElementById('userProfileModal');
+        if (modal) {
+            modal.classList.remove('active');
+            
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                // Remove click-outside handler when modal is closed
+                if (modalCloseHandler) {
+                    document.removeEventListener('click', modalCloseHandler);
+                    modalCloseHandler = null;
+                }
+            }, 400);
+        }
+    };
     
     // Also close on ESC key
     document.addEventListener('keydown', function(event) {
@@ -1002,17 +1044,25 @@ function attachEventListeners() {
         });
     });
     
-    // User dropdown
-    const userDropdown = document.querySelector('.user-dropdown');
-    const userDropdownBtn = document.querySelector('.user-dropdown-btn');
-    
-    if (userDropdownBtn) {
-        console.log('👤 Adding user dropdown button listener');
-        userDropdownBtn.addEventListener('click', () => {
-            console.log('👤 User dropdown button clicked');
-            userDropdown.classList.toggle('active');
-        });
-    }
+    // User dropdown - direct handler by ID (attached after renderApp)
+    setTimeout(() => {
+        const avatarBtn = document.getElementById('userAvatarBtn');
+        const dropdown = document.getElementById('userDropdown');
+        
+        if (avatarBtn && dropdown) {
+            avatarBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                dropdown.classList.toggle('active');
+            });
+            
+            // Click outside to close
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.user-menu') && dropdown.classList.contains('active')) {
+                    dropdown.classList.remove('active');
+                }
+            });
+        }
+    }, 100);
     
     // Dropdown item clicks
     console.log('👤 Adding dropdown item listeners');
@@ -6326,35 +6376,7 @@ function openAIChat() {
 // Image upload functionality removed
 
 // Captivating Profile Popup Modal Functions
-window.openUserProfile = function() {
-    console.log('👤 Opening captivating profile popup');
-    
-    const modal = document.getElementById('userProfileModal');
-    if (modal) {
-        modal.classList.remove('hidden');
-        
-        // Trigger opening animation
-        setTimeout(() => {
-            modal.classList.add('active');
-        }, 50);
-        
-        // Load user data into modal
-        loadUserProfileModalData();
-    }
-};
-
-window.closeUserProfileModal = function() {
-    console.log('👤 Closing profile popup');
-    
-    const modal = document.getElementById('userProfileModal');
-    if (modal) {
-        modal.classList.remove('active');
-        
-        setTimeout(() => {
-            modal.classList.add('hidden');
-        }, 400);
-    }
-};
+// (Improved versions with click-outside-to-close are in attachEventListeners)
 
 async function loadUserProfileModalData() {
     console.log('👤 Loading user profile modal data from backend');

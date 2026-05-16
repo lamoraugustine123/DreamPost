@@ -2728,6 +2728,7 @@ select {
 }
 
 .dropdown-icon {
+    font-family: 'Material Icons';
     font-size: var(--font-size-lg);
     color: var(--text-secondary);
     width: 20px;
