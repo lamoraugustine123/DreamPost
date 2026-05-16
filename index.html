@@ -130,6 +130,10 @@
                             <span class="dropdown-icon">analytics</span>
                             Analytics
                         </button>
+                        <button class="dropdown-item admin-only" data-action="admin" style="display: none;">
+                            <span class="dropdown-icon">admin_panel_settings</span>
+                            Admin Dashboard
+                        </button>
                         <div class="dropdown-divider"></div>
                         <button class="dropdown-item logout-item" data-action="logout">
                             <span class="dropdown-icon">logout</span>
@@ -169,21 +173,33 @@
             <!-- Left Sidebar -->
             <aside class="modern-sidebar left-sidebar">
                 <div class="sidebar-section">
-                    <div class="user-profile-card">
-                        <div class="user-avatar" id="sidebarUserAvatar">DP</div>
+                    <div class="user-profile-card" id="sidebarProfileCard" onclick="openUserProfile()">
+                        <div class="user-avatar-large" id="sidebarUserAvatar">DP</div>
                         <div class="user-info">
                             <div class="user-name" id="sidebarUserName">User Name</div>
+                            <div class="user-stats">
+                                <span class="stat-item">
+                                    <strong id="sidebarPostCount">0</strong>
+                                    <span>Posts</span>
+                                </span>
+                                <span class="stat-item">
+                                    <strong id="sidebarFollowerCount">0</strong>
+                                    <span>Followers</span>
+                                </span>
+                                <span class="stat-item">
+                                    <strong id="sidebarFollowingCount">0</strong>
+                                    <span>Following</span>
+                                </span>
+                            </div>
                         </div>
-                        <div class="profile-actions">
-                            <input type="file" id="sidebarProfileInput" accept="image/*" style="display: none;" onchange="uploadSidebarProfileImage(event)">
-                            <button class="upload-btn" onclick="document.getElementById('sidebarProfileInput').click()">📷</button>
+                        <div class="profile-arrow">
+                            <span>→</span>
                         </div>
                     </div>
+                </div>
+                
+                <div class="sidebar-section">
                     <nav class="sidebar-nav">
-                        <button class="sidebar-nav-item active" data-view="feed">
-                            <span class="nav-icon">home</span>
-                            <span>Feed</span>
-                        </button>
                         <button class="sidebar-nav-item" data-action="create-dream">
                             <span class="nav-icon">add_circle</span>
                             <span>Create Dream</span>
@@ -311,6 +327,114 @@
                     <button id="loadMoreBtn" class="load-more-btn" style="display: none;">Load More Dreams</button>
                 </div>
 
+                <!-- Captivating Profile Popup Modal -->
+                <div id="userProfileModal" class="profile-modal-overlay hidden">
+                    <div class="profile-modal-backdrop" onclick="closeUserProfileModal()"></div>
+                    <div class="profile-modal-container">
+                        <div class="profile-modal-header">
+                            <div class="profile-modal-close" onclick="closeUserProfileModal()">
+                                <span class="close-icon">×</span>
+                            </div>
+                            <div class="profile-modal-avatar-section">
+                                <div class="profile-modal-avatar-glow"></div>
+                                <div class="profile-modal-avatar" id="profileModalAvatar">DP</div>
+                                <div class="profile-modal-avatar-ring"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="profile-modal-body">
+                            <div class="profile-modal-info">
+                                <h2 class="profile-modal-username" id="profileModalUsername">Username</h2>
+                                <p class="profile-modal-bio" id="profileModalBio">No bio yet</p>
+                                <div class="profile-modal-meta">
+                                    <span class="profile-modal-joined" id="profileModalJoined">Joined January 2024</span>
+                                    <span class="profile-modal-email" id="profileModalEmail">user@example.com</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Profile Stats with Animated Numbers -->
+                            <div class="profile-modal-stats">
+                                <div class="stat-card">
+                                    <div class="stat-icon">📝</div>
+                                    <div class="stat-number" id="profileModalPostCount">0</div>
+                                    <div class="stat-label">Posts</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-icon">👥</div>
+                                    <div class="stat-number" id="profileModalFollowerCount">0</div>
+                                    <div class="stat-label">Followers</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-icon">➕</div>
+                                    <div class="stat-number" id="profileModalFollowingCount">0</div>
+                                    <div class="stat-label">Following</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-icon">❤️</div>
+                                    <div class="stat-number" id="profileModalLikeCount">0</div>
+                                    <div class="stat-label">Likes</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Profile Content Tabs -->
+                            <div class="profile-modal-tabs">
+                                <button class="profile-modal-tab active" data-tab="posts">
+                                    <span class="tab-icon">dashboard</span>
+                                    <span>Posts</span>
+                                </button>
+                                <button class="profile-modal-tab" data-tab="liked">
+                                    <span class="tab-icon">favorite</span>
+                                    <span>Liked</span>
+                                </button>
+                                <button class="profile-modal-tab" data-tab="bookmarks">
+                                    <span class="tab-icon">bookmark</span>
+                                    <span>Bookmarks</span>
+                                </button>
+                            </div>
+
+                            <!-- Profile Content -->
+                            <div class="profile-modal-content">
+                                <!-- Posts Grid -->
+                                <div id="profileModalPostsTab" class="profile-modal-tab-content active">
+                                    <div class="posts-grid" id="profileModalPostsGrid">
+                                        <!-- Posts will be dynamically added here -->
+                                    </div>
+                                </div>
+                                
+                                <!-- Liked Posts -->
+                                <div id="profileModalLikedTab" class="profile-modal-tab-content hidden">
+                                    <div class="posts-grid" id="profileModalLikedGrid">
+                                        <!-- Liked posts will be dynamically added here -->
+                                    </div>
+                                </div>
+                                
+                                <!-- Bookmarked Posts -->
+                                <div id="profileModalBookmarksTab" class="profile-modal-tab-content hidden">
+                                    <div class="posts-grid" id="profileModalBookmarksGrid">
+                                        <!-- Bookmarked posts will be dynamically added here -->
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Action Buttons -->
+                            <div class="profile-modal-actions">
+                                <button class="action-btn secondary" id="followBtn" onclick="toggleFollow()">
+                                    <span class="btn-icon" id="followIcon">add</span>
+                                    <span id="followText">Follow</span>
+                                </button>
+                                <button class="action-btn secondary" onclick="shareProfile()">
+                                    <span class="btn-icon">share</span>
+                                    Share
+                                </button>
+                                <button class="action-btn primary" id="editProfileModalBtn">
+                                    <span class="btn-icon">edit</span>
+                                    Edit Profile
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div id="createView" class="card content-panel hidden">
                     <div class="section-header">
                         <div>
@@ -389,79 +513,6 @@
                         <span>Share publicly to the feed</span>
                     </label>
                     <button id="postDreamBtn" class="primary-btn full-width">Post dream</button>
-                </div>
-
-                <div id="profileView" class="card content-panel hidden">
-                    <div class="section-header">
-                        <div>
-                            <h2>Your profile</h2>
-                            <p>Track your dreams, badges, and outreach.</p>
-                        </div>
-                        <button id="editProfileBtn" class="ghost-btn">✏️ Edit Profile</button>
-                        <button onclick="testImageUpload()" class="ghost-btn" style="margin-left: 10px;">🧪 Test Upload</button>
-                    </div>
-                    
-                    <div id="profileDisplay">
-                        <div class="profile-cover" id="profileCover" style="background: linear-gradient(135deg, var(--accent), var(--secondary));">
-                            <label class="cover-upload" title="Upload Cover Picture" onclick="document.getElementById('coverImageInput').click()">
-                                <input id="coverImageInput" type="file" accept="image/*" hidden onchange="window.uploadCoverImage(event)">
-                                📷
-                            </label>
-                        </div>
-                        <div class="profile-header">
-                            <div class="profile-avatar-wrapper">
-                                <div class="profile-avatar-large" id="profileAvatarLarge">DP</div>
-                                <label class="avatar-upload" title="Upload Profile Picture" onclick="document.getElementById('profileImageInput').click()">
-                                    <input id="profileImageInput" type="file" accept="image/*" hidden onchange="window.uploadProfileImage(event)">
-                                    📷
-                                </label>
-                            </div>
-                            <div class="profile-info">
-                                <h3 id="profileNameDisplay">User Name</h3>
-                                <p id="profileEmailDisplay">user@example.com</p>
-                                <p id="profileBioDisplay">No bio yet</p>
-                                <div style="margin-top: 15px;">
-                                    <button style="background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; margin-bottom: 10px; width: 100%;" onclick="document.getElementById('profileFileInput').click()">
-                                        📷 Upload Profile Picture
-                                    </button>
-                                    <input type="file" id="profileFileInput" accept="image/*" style="display: none;" onchange="uploadProfileImageSimple(event)">
-                                    
-                                    <button style="background: linear-gradient(135deg, var(--accent), var(--secondary)); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; width: 100%;" onclick="document.getElementById('coverFileInput').click()">
-                                        🖼️ Upload Cover Picture
-                                    </button>
-                                    <input type="file" id="coverFileInput" accept="image/*" style="display: none;" onchange="uploadCoverImageSimple(event)">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="profile-summary">
-                            <div>
-                                <strong id="profileDreams">0</strong>
-                                <span>Dreams</span>
-                            </div>
-                            <div>
-                                <strong id="profileLikes">0</strong>
-                                <span>Hearts</span>
-                            </div>
-                            <div>
-                                <strong id="profileBadgeCount">0</strong>
-                                <span>Badges</span>
-                            </div>
-                        </div>
-                        <div class="badges-panel" id="badgesPanel"></div>
-                        <div class="user-posts" id="userPosts"></div>
-                    </div>
-
-                    <div id="profileEdit" class="profile-edit-form hidden">
-                        <div class="profile-edit-header">
-                            <h3>Edit Your Profile</h3>
-                            <button id="cancelProfileBtn" class="close-btn">✕</button>
-                        </div>
-                        <label>Name<input id="editName" type="text" placeholder="Your name"></label>
-                        <label>Bio<textarea id="editBio" rows="3" placeholder="Tell us about your dreams..."></textarea></label>
-                        <div class="button-group">
-                            <button id="saveProfileBtn" class="primary-btn full-width">Save Changes</button>
-                        </div>
-                    </div>
                 </div>
 
                 <div id="settingsView" class="card content-panel hidden">
@@ -992,7 +1043,7 @@
     </div>
     <div class="modal-content">
         <div class="modal-profile-section">
-            <div class="modal-profile-cover" id="modalProfileCover" style="background: linear-gradient(135deg, var(--accent), var(--secondary));">
+            <div class="modal-profile-cover" id="modalProfileCover">
                 <label class="modal-cover-upload" title="Upload Cover Picture">
                     <input id="modalCoverImageInput" type="file" accept="image/*" hidden>
                     📷

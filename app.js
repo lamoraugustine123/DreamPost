@@ -1,4 +1,169 @@
+// API configuration
 const API_URL = 'http://localhost:3005/api';
+
+// Resilient retry for background API calls (optimistic UI pattern)
+// Retries up to maxRetries times with exponential backoff, then calls onFail to revert UI
+async function resilientSync(apiFn, { maxRetries = 3, baseDelay = 1000, onFail = null } = {}) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const res = await apiFn();
+            if (res && res.ok === false) throw new Error(`HTTP ${res.status}`);
+            dataCache.invalidateCache();
+            return res;
+        } catch (error) {
+            console.warn(`⚠️ Sync attempt ${attempt}/${maxRetries} failed:`, error.message);
+            if (attempt < maxRetries) {
+                await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt - 1)));
+            } else {
+                console.error('❌ All sync retries exhausted, reverting UI');
+                if (onFail) onFail();
+            }
+        }
+    }
+}
+
+// Efficient data caching system
+const dataCache = {
+    posts: null,
+    userPosts: null,
+    lastFetch: 0,
+    cacheTimeout: 10000, // 10 seconds
+    followCounts: new Map(),
+    followCountsTTL: 15000, // 15 seconds
+    // User stats cache for instant sidebar updates
+    userStats: { postCount: 0, followerCount: 0, followingCount: 0, totalLikes: 0 },
+    
+    getPosts: async function(forceRefresh = false) {
+        const now = Date.now();
+        if (!forceRefresh && this.posts && (now - this.lastFetch) < this.cacheTimeout) {
+            console.log('📦 Using cached posts');
+            return this.posts;
+        }
+        
+        console.log('🔄 Fetching fresh posts');
+        const response = await fetch(`${API_URL}/posts`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        this.posts = await response.json();
+        this.lastFetch = now;
+        return this.posts;
+    },
+    
+    getUserPosts: async function(userEmail, forceRefresh = false) {
+        const now = Date.now();
+        if (!forceRefresh && this.userPosts && (now - this.lastFetch) < this.cacheTimeout) {
+            console.log('📦 Using cached user posts');
+            return this.userPosts;
+        }
+        
+        console.log('🔄 Fetching fresh user posts');
+        const response = await fetch(`${API_URL}/posts?author=${userEmail}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        this.userPosts = await response.json();
+        this.lastFetch = now;
+        return this.userPosts;
+    },
+    
+    invalidateCache: function() {
+        this.posts = null;
+        this.userPosts = null;
+        this.lastFetch = 0;
+    },
+    
+    getCachedFollowCounts: async function(email) {
+        const now = Date.now();
+        const cached = this.followCounts.get(email);
+        if (cached && (now - cached.timestamp) < this.followCountsTTL) {
+            return cached.data;
+        }
+        const response = await fetch(`${API_URL}/users/followers?email=${encodeURIComponent(email)}`);
+        if (response.ok) {
+            const data = await response.json();
+            const result = { followerCount: data.followerCount || 0, followingCount: data.followingCount || 0 };
+            this.followCounts.set(email, { data: result, timestamp: now });
+            return result;
+        }
+        return { followerCount: 0, followingCount: 0 };
+    },
+    
+    invalidateFollowCounts: function(email) {
+        this.followCounts.delete(email);
+    },
+    
+    updatePostInCache: function(postId, updatedData) {
+        if (this.posts) {
+            const postIndex = this.posts.findIndex(p => p.id === postId);
+            if (postIndex !== -1) {
+                this.posts[postIndex] = { ...this.posts[postIndex], ...updatedData };
+            }
+        }
+        if (this.userPosts) {
+            const postIndex = this.userPosts.findIndex(p => p.id === postId);
+            if (postIndex !== -1) {
+                this.userPosts[postIndex] = { ...this.userPosts[postIndex], ...updatedData };
+            }
+        }
+    },
+    
+    updateUserStats: function(stats) {
+        this.userStats = { ...this.userStats, ...stats };
+        updateSidebarStatsInstant(this.userStats);
+    }
+};
+
+// Instant sidebar stats update (no API wait)
+function updateSidebarStatsInstant(stats) {
+    const sidebarPostCount = document.getElementById('sidebarPostCount');
+    const sidebarFollowerCount = document.getElementById('sidebarFollowerCount');
+    const sidebarFollowingCount = document.getElementById('sidebarFollowingCount');
+    
+    if (sidebarPostCount) sidebarPostCount.textContent = stats.postCount || 0;
+    if (sidebarFollowerCount) sidebarFollowerCount.textContent = stats.followerCount || 0;
+    if (sidebarFollowingCount) sidebarFollowingCount.textContent = stats.followingCount || 0;
+}
+
+// Increment/decrement sidebar stats instantly
+function incrementSidebarStat(stat, delta) {
+    const element = document.getElementById(`sidebar${stat.charAt(0).toUpperCase() + stat.slice(1)}Count`);
+    if (element) {
+        const current = parseInt(element.textContent) || 0;
+        element.textContent = Math.max(0, current + delta);
+        // Also update cache
+        dataCache.userStats[stat] = Math.max(0, current + delta);
+    }
+}
+
+// Loading states for better UX
+const loadingStates = {
+    showLoading: function(elementId, message = 'Loading...') {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.innerHTML = `<div class="loading-spinner">${message}</div>`;
+        }
+    },
+    hideLoading: function(elementId) {
+        // Loading will be replaced by actual content
+    },
+    showButtonLoading: function(button) {
+        if (button) {
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner"></span> Loading...';
+        }
+    },
+    hideButtonLoading: function(button, originalText) {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalText;
+        }
+    }
+};
 
 // Utility functions
 function formatTime(timestamp) {
@@ -225,6 +390,136 @@ console.log('📷 profileImageInput:', elements.profileImageInput);
 console.log('🖼️ coverImageInput:', elements.coverImageInput);
 
 let currentUser = null;
+
+// Rate limiting configuration
+const RATE_LIMIT_CONFIG = {
+    maxRequests: 100,      // Max requests per time window
+    timeWindow: 60000,     // 1 minute in milliseconds
+    retryDelay: 1000,      // Initial retry delay
+    maxRetries: 3,         // Maximum retry attempts
+    backoffMultiplier: 2     // Exponential backoff multiplier
+};
+
+// Rate limiting state
+let requestQueue = [];
+let requestHistory = [];
+let isProcessingQueue = false;
+
+// Enhanced fetch with rate limiting and retry
+async function rateLimitedFetch(url, options = {}, retryCount = 0) {
+    // Check if we're rate limited
+    if (isRateLimited()) {
+        console.log('⏳ Rate limited, queuing request...');
+        return queueRequest(url, options, retryCount);
+    }
+
+    try {
+        const response = await fetch(url, options);
+        
+        // Handle rate limiting response
+        if (response.status === 429) {
+            const retryAfter = response.headers.get('Retry-After') || 60;
+            console.log(`🚫 Rate limited. Retry after ${retryAfter} seconds`);
+            
+            if (retryCount < RATE_LIMIT_CONFIG.maxRetries) {
+                const delay = Math.min(
+                    RATE_LIMIT_CONFIG.retryDelay * Math.pow(RATE_LIMIT_CONFIG.backoffMultiplier, retryCount),
+                    retryAfter * 1000
+                );
+                
+                console.log(`🔄 Retrying in ${delay}ms (attempt ${retryCount + 1})`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return rateLimitedFetch(url, options, retryCount + 1);
+            } else {
+                throw new Error(`Rate limit exceeded. Please try again later.`);
+            }
+        }
+
+        // Record successful request
+        recordRequest();
+        return response;
+
+    } catch (error) {
+        if (retryCount < RATE_LIMIT_CONFIG.maxRetries && 
+            (error.message.includes('Rate limit') || error.message.includes('fetch'))) {
+            const delay = RATE_LIMIT_CONFIG.retryDelay * Math.pow(RATE_LIMIT_CONFIG.backoffMultiplier, retryCount);
+            console.log(`🔄 Retrying in ${delay}ms (attempt ${retryCount + 1})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return rateLimitedFetch(url, options, retryCount + 1);
+        }
+        throw error;
+    }
+}
+
+// Check if currently rate limited
+function isRateLimited() {
+    const now = Date.now();
+    const recentRequests = requestHistory.filter(
+        timestamp => now - timestamp < RATE_LIMIT_CONFIG.timeWindow
+    );
+    
+    return recentRequests.length >= RATE_LIMIT_CONFIG.maxRequests;
+}
+
+// Record a successful request
+function recordRequest() {
+    requestHistory.push(Date.now());
+    
+    // Clean old requests
+    const now = Date.now();
+    requestHistory = requestHistory.filter(
+        timestamp => now - timestamp < RATE_LIMIT_CONFIG.timeWindow
+    );
+}
+
+// Queue a request when rate limited
+function queueRequest(url, options, retryCount) {
+    return new Promise((resolve, reject) => {
+        requestQueue.push({ url, options, retryCount, resolve, reject });
+        
+        if (!isProcessingQueue) {
+            processQueue();
+        }
+    });
+}
+
+// Process queued requests
+async function processQueue() {
+    isProcessingQueue = true;
+    
+    while (requestQueue.length > 0) {
+        const request = requestQueue.shift();
+        
+        try {
+            // Wait until not rate limited
+            while (isRateLimited()) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            
+            const response = await rateLimitedFetch(request.url, request.options, request.retryCount);
+            request.resolve(response);
+            
+        } catch (error) {
+            // Show user-friendly error for rate limiting
+            if (error.message.includes('Rate limit')) {
+                showToast(`🚫 ${error.message}`, 'error');
+            }
+            request.reject(error);
+        }
+    }
+    
+    isProcessingQueue = false;
+}
+
+// Enhanced error handler for rate limiting
+function handleRateLimitError(error) {
+    if (error.message.includes('Rate limit')) {
+        showToast(`🚫 Too many requests. Please wait a moment and try again.`, 'error');
+        return true;
+    }
+    return false;
+}
+
 let currentView = 'feed';
 let selectedImageData = null;
 let feedFilterQuery = '';
@@ -232,28 +527,17 @@ let feedFilterMood = 'All';
 let feedFilterType = 'All';
 
 async function apiFetch(path, options = {}) {
-    const response = await fetch(`${API_URL}${path}`, {
+    const response = await rateLimitedFetch(`${API_URL}${path}`, {
         headers: { 'Content-Type': 'application/json' },
         ...options,
     });
-    const text = await response.text();
-    let payload = null;
-    if (text) {
-        try {
-            payload = JSON.parse(text);
-        } catch (error) {
-            throw new Error('Invalid server response');
-        }
-    }
-    if (!response.ok) {
-        throw new Error((payload && payload.error) || response.statusText || 'Server error');
-    }
-    return payload;
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.json();
 }
 
 async function getUser(email) {
     try {
-        const response = await fetch(`${API_URL}/users?email=${encodeURIComponent(email)}`);
+        const response = await rateLimitedFetch(`${API_URL}/users?email=${encodeURIComponent(email)}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -313,16 +597,10 @@ async function signupUser(name, email, password) {
 
 async function getPosts() {
     try {
-        console.log('Fetching posts from database API...');
-        // Fetch posts from database API
-        const response = await fetch(`${API_URL}/posts`);
-        console.log('Response status:', response.status);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const posts = await response.json();
-        console.log('Posts received from API:', posts);
+        console.log('📦 Getting posts from cache/API...');
+        // Optimized: Use caching system
+        const posts = await dataCache.getPosts();
+        console.log('Posts received:', posts.length);
         
         // Convert posts array to have proper date objects
         const processedPosts = posts.map(post => ({
@@ -333,7 +611,7 @@ async function getPosts() {
             comments: post.comments || []
         }));
         
-        console.log('Processed posts:', processedPosts);
+        console.log('Processed posts:', processedPosts.length);
         return processedPosts;
     } catch (error) {
         console.error('Error fetching posts from API:', error);
@@ -604,7 +882,7 @@ function attachEventListeners() {
                 const appShell = document.querySelector('.app-shell');
                 if (appShell) {
                     console.log('🚪 Showing main app shell');
-                    appShell.style.display = 'block';
+                    appShell.style.display = 'flex';
                 } else {
                     console.log('❌ App shell element not found');
                 }
@@ -623,24 +901,47 @@ function attachEventListeners() {
     if (elements.cancelProfileBtn) {
         elements.cancelProfileBtn.addEventListener('click', closeProfileEdit);
     }
-    if (elements.coverImageInput) {
-        console.log('🔧 Adding event listener to coverImageInput');
-        elements.coverImageInput.addEventListener('change', (event) => {
-            console.log('🖼️ Cover image input change event triggered');
-            handleCoverUpload(event);
+    // Image upload event listeners removed
+    
+    // Profile modal event listeners
+    const profileModalTabs = document.querySelectorAll('.profile-modal-tab');
+    profileModalTabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            const tabName = this.dataset.tab;
+            switchProfileModalTab(tabName);
         });
-    } else {
-        console.log('❌ coverImageInput element not found!');
-    }
-    if (elements.profileImageInput) {
-        console.log('🔧 Adding event listener to profileImageInput');
-        elements.profileImageInput.addEventListener('change', (event) => {
-            console.log('📷 Profile image input change event triggered');
-            handleProfilePictureUpload(event);
+    });
+    
+    // Edit profile button
+    const editProfileModalBtn = document.getElementById('editProfileModalBtn');
+    if (editProfileModalBtn) {
+        editProfileModalBtn.addEventListener('click', function() {
+            openEditProfileModal();
         });
-    } else {
-        console.log('❌ profileImageInput element not found!');
     }
+    
+    // Click outside to close functionality for profile modal
+    document.addEventListener('click', function(event) {
+        const profileModal = document.getElementById('userProfileModal');
+        if (profileModal && !profileModal.classList.contains('hidden')) {
+            const modalContainer = document.querySelector('.profile-modal-container');
+            
+            // Simple check: if click is outside modal container, close it
+            if (modalContainer && !modalContainer.contains(event.target)) {
+                console.log('🖱️ Click outside modal detected, closing...');
+                closeUserProfileModal();
+            }
+        }
+    });
+    
+    // Also close on ESC key
+    document.addEventListener('keydown', function(event) {
+        const profileModal = document.getElementById('userProfileModal');
+        if (event.key === 'Escape' && profileModal && !profileModal.classList.contains('hidden')) {
+            console.log('⌨️ ESC key pressed, closing modal...');
+            closeUserProfileModal();
+        }
+    });
     
     // Password strength indicator
     if (elements.signupPassword) {
@@ -855,6 +1156,16 @@ async function handleLogin() {
         console.log('Attempting login with security...');
         currentUser = await handleLoginWithSecurity(email, password);
         console.log('Login successful:', currentUser);
+        
+        // Auto-set user name from email if not already set or if name is just email
+        if (!currentUser.name || currentUser.name === currentUser.email || currentUser.name.trim() === '') {
+            currentUser.name = formatEmailToName(email);
+            console.log('👤 Auto-set user name from email:', currentUser.name);
+            
+            // Save the auto-generated name to database for consistency
+            await saveUserNameToDatabase(currentUser.email, currentUser.name);
+        }
+        
         storage.setSession(currentUser.email);
         showToast(`Welcome back, ${currentUser.name}!`);
         
@@ -2310,37 +2621,6 @@ function getTimeAgo(date) {
     return "just now";
 }
 
-// Toggle like functionality
-async function toggleLike(postId) {
-    if (!currentUser) {
-        showToast('Please log in to like posts');
-        return;
-    }
-    
-    const posts = await getPosts();
-    const post = posts.find(p => p.id === postId);
-    
-    if (post) {
-        // Handle both old and new post structures
-        if (post.likedBy && Array.isArray(post.likedBy)) {
-            // New structure with likedBy array
-            const userLiked = post.likedBy.includes(currentUser.email);
-            if (userLiked) {
-                post.likedBy = post.likedBy.filter(email => email !== currentUser.email);
-            } else {
-                post.likedBy.push(currentUser.email);
-            }
-            post.likes = post.likedBy.length;
-        } else {
-            // Old structure with liked boolean
-            post.liked = !post.liked;
-            post.likes = post.liked ? (post.likes || 0) + 1 : Math.max(0, (post.likes || 0) - 1);
-        }
-        
-        await savePosts(posts);
-        renderFeed();
-    }
-}
 
 async function changeView(view) {
     console.log('🔄 ChangeView called with:', view);
@@ -2420,7 +2700,7 @@ async function renderApp() {
     }
     
     // Show the entire app shell when authenticated
-    document.querySelector('.app-shell').style.display = 'block';
+    document.querySelector('.app-shell').style.display = 'flex';
     
     // Show modern feed view by default
     const feedView = document.getElementById('feedView');
@@ -2467,12 +2747,12 @@ async function renderApp() {
     } else {
         console.log('❌ profileBioDisplay element not found');
     }
-    if (elements.profileAvatarLarge) {
-        console.log('👤 Updating profileAvatarLarge element');
-        elements.profileAvatarLarge.textContent = currentUser.name.slice(0, 2).toUpperCase();
-    } else {
-        console.log('❌ profileAvatarLarge element not found');
-    }
+    // Profile avatar element removed
+    
+    // Cover image element removed
+    
+    // Update sidebar user info immediately when app renders
+    updateSidebarUserInfo();
     
     // Update AI Assistant elements
     console.log('🤖 Updating AI assistant elements');
@@ -2519,6 +2799,13 @@ async function renderApp() {
 
 async function renderStats() {
     console.log('📊 renderStats called');
+    
+    // Check if DOM is ready
+    if (document.readyState !== 'complete') {
+        console.log('⏳ DOM not ready, waiting...');
+        return;
+    }
+    
     if (!currentUser || !currentUser.email) {
         console.log('❌ No current user found');
         return;
@@ -2526,7 +2813,9 @@ async function renderStats() {
     console.log('📊 Current user email:', currentUser.email);
     
     try {
-        const posts = (await getPosts()).filter(post => post.authorEmail === currentUser.email);
+        // Optimized: Get user posts directly from API instead of all posts
+        const response = await fetch(`/api/posts?author=${currentUser.email}`);
+        const posts = await response.json();
         console.log('📊 User posts found:', posts.length);
         
         // Update dream count with null safety
@@ -2728,6 +3017,14 @@ async function renderFeed() {
 }
 
 async function renderProfile() {
+    console.log('👤 renderProfile called');
+    
+    // Check if DOM is ready
+    if (document.readyState !== 'complete') {
+        console.log('⏳ DOM not ready, waiting...');
+        return;
+    }
+    
     if (!currentUser || !currentUser.email) {
         console.log('❌ No current user found for profile');
         if (elements.userPosts) {
@@ -2736,10 +3033,16 @@ async function renderProfile() {
         return;
     }
     
-    const posts = (await getPosts())
-        .filter(post => post.authorEmail === currentUser.email)
-        .sort((a, b) => b.createdAt - a.createdAt);
-    elements.userPosts.innerHTML = posts.length ? posts.map(createPostCard).join('') : '<p>You have not posted any dreams yet.</p>';
+    // Optimized: Get user posts directly from API instead of all posts
+    const response = await fetch(`/api/posts?author=${currentUser.email}`);
+    const posts = await response.json();
+    posts.sort((a, b) => b.createdAt - a.createdAt);
+    
+    if (elements.userPosts) {
+        elements.userPosts.innerHTML = posts.length ? posts.map(createPostCard).join('') : '<p>You have not posted any dreams yet.</p>';
+    } else {
+        console.log('❌ userPosts element not found');
+    }
 }
 
 function createPostCard(post) {
@@ -2884,6 +3187,9 @@ async function createDream() {
         selectedImageData = null;
         elements.imagePreviewWrapper.classList.add('hidden');
         
+        // Instant sidebar post count update
+        incrementSidebarStat('postCount', 1);
+        
         showToast(`${contentType.charAt(0).toUpperCase() + contentType.slice(1)} posted successfully!`);
         await changeView('feed');
     } catch (error) {
@@ -2960,24 +3266,155 @@ async function toggleLike(postId) {
         return;
     }
     
-    try {
-        const posts = await getPosts();
-        const post = posts.find(p => p.id === postId);
-        if (!post) return;
+    // --- INSTANT UI UPDATE (no await) ---
+    // Read from cache synchronously
+    const cachedPosts = dataCache.posts;
+    let hasLiked = false;
+    let newLikes = 0;
+    let newLikedBy = [];
+    
+    if (cachedPosts) {
+        const post = cachedPosts.find(p => p.id === postId);
+        if (post) {
+            if (!post.likedBy || !Array.isArray(post.likedBy)) post.likedBy = [];
+            hasLiked = post.likedBy.includes(currentUser.email);
+            newLikedBy = hasLiked 
+                ? post.likedBy.filter(email => email !== currentUser.email) 
+                : [...post.likedBy, currentUser.email];
+            newLikes = newLikedBy.length;
+            
+            // Update cache in-place instantly
+            post.likedBy = newLikedBy;
+            post.likes = newLikes;
+        }
+    }
+    
+    // Update DOM instantly
+    updateLikeUI(postId, !hasLiked, newLikes);
+    
+    // Update sidebar total likes instantly if this is the current user's post
+    if (cachedPosts) {
+        const post = cachedPosts.find(p => p.id === postId);
+        if (post && post.authorEmail === currentUser.email) {
+            incrementSidebarStat('totalLikes', !hasLiked ? 1 : -1);
+        }
+    }
+    
+    // Also update the SVG heart fill for the modern feed
+    const likeBtns = document.querySelectorAll(`[data-post-id="${postId}"] .like-btn, .like-btn[onclick*="'${postId}'"]`);
+    likeBtns.forEach(btn => {
+        const svg = btn.querySelector('.action-icon');
+        if (svg) svg.setAttribute('fill', !hasLiked ? 'currentColor' : 'none');
+        if (!hasLiked) btn.classList.add('liked');
+        else btn.classList.remove('liked');
+    });
+    
+    // --- BACKGROUND API CALL WITH RETRY ---
+    resilientSync(
+        () => updatePost(postId, { likedBy: newLikedBy, likes: newLikes }),
+        {
+            onFail: () => {
+                // Revert like UI to previous state
+                const revertLikes = hasLiked ? newLikes + 1 : Math.max(newLikes - 1, 0);
+                updateLikeUI(postId, hasLiked, revertLikes);
+                likeBtns.forEach(btn => {
+                    const svg = btn.querySelector('.action-icon');
+                    if (svg) svg.setAttribute('fill', hasLiked ? 'currentColor' : 'none');
+                    if (hasLiked) btn.classList.add('liked');
+                    else btn.classList.remove('liked');
+                });
+                if (cachedPosts) {
+                    const post = cachedPosts.find(p => p.id === postId);
+                    if (post) { post.likedBy = hasLiked ? [...newLikedBy, currentUser.email] : newLikedBy.filter(e => e !== currentUser.email); post.likes = revertLikes; }
+                }
+                showToast('Like failed to save. Reverted.');
+            }
+        }
+    );
+}
+
+// Update like button UI immediately
+function updateLikeUI(postId, isLiked, newLikeCount) {
+    const likeButtons = document.querySelectorAll(`button[onclick*="toggleLike('${postId}')"], button[onclick*="toggleLike(\\"${postId}\\")"], button[onclick*="togglePostLike('${postId}')"], button[onclick*="togglePostLike(\\"${postId}\\")"]`);
+    
+    likeButtons.forEach(button => {
+        const likeIcon = button.querySelector('.like-icon');
+        const actionCount = button.querySelector('.action-count');
+        const likeCount = button.closest('.post-card')?.querySelector('.like-count');
         
-        if (!post.likedBy || !Array.isArray(post.likedBy)) {
-            post.likedBy = [];
+        if (likeIcon) {
+            likeIcon.textContent = isLiked ? '❤️' : '🤍';
         }
         
-        const hasLiked = post.likedBy.includes(currentUser.email);
-        const likedBy = hasLiked ? post.likedBy.filter(email => email !== currentUser.email) : [...post.likedBy, currentUser.email];
-        const likes = hasLiked ? Math.max(post.likes - 1, 0) : post.likes + 1;
-        await updatePost(postId, { likedBy, likes });
-        await renderApp();
-    } catch (error) {
-        console.error('Error toggling like:', error);
-        showToast('Failed to update like');
+        // Update action-count (used in modern feed)
+        if (actionCount) {
+            actionCount.textContent = newLikeCount;
+        }
+        
+        // Update like-count (used in other feed types)
+        if (likeCount) {
+            likeCount.textContent = `${newLikeCount} likes`;
+        }
+        
+        // Update button state
+        if (isLiked) {
+            button.classList.add('liked');
+        } else {
+            button.classList.remove('liked');
+        }
+    });
+}
+
+// Optimized: Update single post in feed without full refresh
+function updateSinglePostInFeed(postId, updatedPost) {
+    const postCard = document.querySelector(`[data-post-id="${postId}"]`);
+    if (postCard) {
+        const likeBtn = postCard.querySelector('.like-btn');
+        const likeIcon = postCard.querySelector('.like-icon');
+        const likeCount = postCard.querySelector('.like-count');
+        
+        if (likeBtn && likeIcon) {
+            const isLiked = updatedPost.likedBy && updatedPost.likedBy.includes(currentUser.email);
+            likeBtn.classList.toggle('liked', isLiked);
+            likeIcon.textContent = isLiked ? '❤️' : '🤍';
+        }
+        
+        if (likeCount) {
+            likeCount.textContent = `${updatedPost.likes || 0} likes`;
+        }
     }
+}
+
+// Optimized: Update like button UI immediately
+function updateLikeUI(postId, isLiked, newLikeCount) {
+    const likeButtons = document.querySelectorAll(`[data-post-id="${postId}"] .like-btn`);
+    
+    likeButtons.forEach(button => {
+        const likeIcon = button.querySelector('.like-icon');
+        const actionCount = button.querySelector('.action-count');
+        const likeCount = button.closest('.post-card')?.querySelector('.like-count');
+        
+        if (likeIcon) {
+            likeIcon.textContent = isLiked ? '❤️' : '🤍';
+        }
+        
+        // Update action-count (used in modern feed)
+        if (actionCount) {
+            actionCount.textContent = newLikeCount;
+        }
+        
+        // Update like-count (used in other feed types)
+        if (likeCount) {
+            likeCount.textContent = `${newLikeCount} likes`;
+        }
+        
+        // Update button state
+        if (isLiked) {
+            button.classList.add('liked');
+        } else {
+            button.classList.remove('liked');
+        }
+    });
 }
 
 async function toggleComments(postId) {
@@ -2987,19 +3424,30 @@ async function toggleComments(postId) {
     }
     
     try {
-        console.log('💬 Opening comments for post:', postId);
+        // Show modal instantly with loading state
+        if (!document.getElementById('commentsModal')) {
+            createCommentsModal();
+        }
+        const modal = document.getElementById('commentsModal');
+        modal.dataset.postId = postId;
+        document.getElementById('commentsList').innerHTML = '<p style="text-align:center;color:rgba(255,255,255,0.5);padding:20px;">Loading comments...</p>';
+        modal.classList.add('active');
+        const overlay = document.getElementById('modalOverlay');
+        if (overlay) overlay.classList.add('active');
         
-        // Get post details
+        // Fetch post data in background
         const posts = await getPosts();
         const post = posts.find(p => p.id === postId);
         
         if (!post) {
             showToast('Post not found');
+            modal.classList.remove('active');
             return;
         }
         
-        // Create and show comments modal
-        await openCommentsModal(postId, post);
+        // Update with real comments
+        await updateCommentsModal(postId, post);
+        document.getElementById('commentInput').focus();
         
     } catch (error) {
         console.error('❌ Error opening comments:', error);
@@ -3017,23 +3465,62 @@ async function submitComment(postId) {
     if (!commentInput) return;
     const text = commentInput.value.trim();
     if (!text) return showToast('Write a kind encouragement message.');
-    try {
-        const posts = await getPosts();
-        const post = posts.find(p => p.id === postId);
-        if (!post) return;
-        const comments = post.comments || [];
-        comments.push({
-            id: crypto.randomUUID(),
-            text,
-            userName: currentUser.name,
-            authorEmail: currentUser.email,
-            createdAt: Date.now(),
-        });
-        await updatePost(postId, { comments });
-        showToast('Encouragement shared!');
-        await renderApp();
-    } catch (error) {
-        showToast(error.message);
+    
+    // --- INSTANT UI UPDATE ---
+    const commentHtml = `
+        <div class="comment">
+            <div class="comment-header">
+                <strong>${currentUser.name}</strong>
+                <span class="comment-time">Just now</span>
+            </div>
+            <div class="comment-text">${text}</div>
+        </div>
+    `;
+    const commentsList = document.querySelector(`[data-post-id="${postId}"] .comments-list`);
+    if (commentsList) {
+        commentsList.insertAdjacentHTML('afterbegin', commentHtml);
+    }
+    
+    // Update comment count in feed instantly
+    const actionCount = document.querySelector(`[data-post-id="${postId}"] .comment-btn .action-count`);
+    if (actionCount) {
+        actionCount.textContent = (parseInt(actionCount.textContent) || 0) + 1;
+    }
+    
+    commentInput.value = '';
+    showToast('Encouragement shared!');
+    
+    // --- BACKGROUND API CALL WITH RETRY ---
+    const prevCount = actionCount ? parseInt(actionCount.textContent) || 0 : 0;
+    resilientSync(
+        () => fetch(`${API_URL}/posts/${postId}/comments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, authorEmail: currentUser.email, authorName: currentUser.name })
+        }),
+        {
+            onFail: () => {
+                // Revert: remove the optimistic comment
+                if (commentsList && commentsList.firstElementChild) {
+                    commentsList.firstElementChild.remove();
+                }
+                if (actionCount) {
+                    actionCount.textContent = Math.max(prevCount - 1, 0);
+                }
+                showToast('Comment failed to save. Reverted.');
+            }
+        }
+    );
+}
+
+// Optimized: Update comment count immediately in UI
+function updateCommentCountInUI(postId, count) {
+    const postCard = document.querySelector(`[data-post-id="${postId}"]`);
+    if (postCard) {
+        const commentCount = postCard.querySelector('.comment-count');
+        if (commentCount) {
+            commentCount.textContent = `${count} comments`;
+        }
     }
 }
 
@@ -3074,17 +3561,16 @@ async function openCommentsModal(postId, post) {
     const modal = document.getElementById('commentsModal');
     modal.dataset.postId = postId;
     
+    // Show modal instantly
+    modal.classList.add('active');
+    const overlay = document.getElementById('modalOverlay');
+    if (overlay) overlay.classList.add('active');
+    
     // Update modal content
     await updateCommentsModal(postId, post);
     
-    // Show modal using the existing modal system
-    modal.classList.add('active');
-    document.getElementById('modalOverlay').classList.add('active');
-    
     // Focus on input
-    setTimeout(() => {
-        document.getElementById('commentInput').focus();
-    }, 100);
+    document.getElementById('commentInput').focus();
 }
 
 async function updateCommentsModal(postId, post) {
@@ -3250,14 +3736,7 @@ async function sharePost(postId) {
     }
     
     try {
-        const posts = await getPosts();
-        const post = posts.find(p => p.id === postId);
-        if (!post) {
-            showToast('Post not found');
-            return;
-        }
-
-        // Create share modal
+        // Show share modal instantly with share options (no post data needed yet)
         const shareModal = document.createElement('div');
         shareModal.className = 'share-modal';
         shareModal.innerHTML = `
@@ -3267,12 +3746,9 @@ async function sharePost(postId) {
                     <button class="close-btn" onclick="closeShareModal()">×</button>
                 </div>
                 <div class="share-modal-body">
-                    <div class="post-preview">
-                        <div class="post-preview-header">
-                            <strong>${post.authorName || 'Anonymous'}</strong>
-                            <span>${formatTime(post.createdAt)}</span>
-                        </div>
-                        <div class="post-preview-text">${post.text ? post.text.substring(0, 150) + (post.text.length > 150 ? '...' : '') : ''}</div>
+                    <div class="post-preview" id="sharePostPreview_${postId}">
+                        <div class="post-preview-header"><strong>Loading...</strong></div>
+                        <div class="post-preview-text" style="color:rgba(255,255,255,0.4)">Loading preview...</div>
                     </div>
                     <div class="share-options">
                         <button class="share-option" onclick="shareToSocial('facebook', '${postId}')">
@@ -3306,10 +3782,26 @@ async function sharePost(postId) {
 
         document.body.appendChild(shareModal);
         
-        // Add animation
-        setTimeout(() => {
+        // Show immediately
+        requestAnimationFrame(() => {
             shareModal.classList.add('show');
-        }, 10);
+        });
+
+        // Fill in post preview in background
+        const posts = await getPosts();
+        const post = posts.find(p => p.id === postId);
+        if (post) {
+            const preview = document.getElementById(`sharePostPreview_${postId}`);
+            if (preview) {
+                preview.innerHTML = `
+                    <div class="post-preview-header">
+                        <strong>${post.authorName || 'Anonymous'}</strong>
+                        <span>${formatTime(post.createdAt)}</span>
+                    </div>
+                    <div class="post-preview-text">${post.text ? post.text.substring(0, 150) + (post.text.length > 150 ? '...' : '') : ''}</div>
+                `;
+            }
+        }
 
     } catch (error) {
         console.error('Error sharing post:', error);
@@ -3370,6 +3862,197 @@ function closeShareModal() {
     }
 }
 
+// Enhanced Share Profile Functionality
+window.shareProfile = function() {
+    console.log('🔗 Sharing profile with enhanced functionality');
+    
+    if (!currentUser || !window.currentUserProfile) {
+        showToast('Please log in to share your profile');
+        return;
+    }
+    
+    // Create share modal with multiple sharing options
+    const shareModal = document.createElement('div');
+    shareModal.className = 'profile-modal-overlay active';
+    shareModal.id = 'shareProfileModal';
+    shareModal.innerHTML = `
+        <div class="profile-modal-backdrop" onclick="closeShareProfileModal()"></div>
+        <div class="profile-modal-container" style="max-width: 500px;">
+            <div class="profile-modal-header">
+                <div class="profile-modal-close" onclick="closeShareProfileModal()">
+                    <span class="close-icon">×</span>
+                </div>
+                <h2 style="color: white; margin: 0;">Share Profile</h2>
+            </div>
+            <div class="profile-modal-body">
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <div style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--secondary)); display: flex; align-items: center; justify-content: center; color: white; font-size: 2rem; font-weight: 700; margin: 0 auto 15px;">
+                        ${window.currentUserProfile.profileImage ? 
+                            `<img src="${window.currentUserProfile.profileImage}" alt="Profile" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">` :
+                            window.currentUserProfile.name ? window.currentUserProfile.name.slice(0, 2).toUpperCase() : 'DP'
+                        }
+                    </div>
+                    <h3 style="color: white; margin: 0 0 5px;">${window.currentUserProfile.name || 'User'}</h3>
+                    <p style="color: rgba(255,255,255,0.7); margin: 0; font-size: 0.9rem;">${window.currentUserProfile.bio || 'Dreamer on DreamPost'}</p>
+                </div>
+                
+                <div class="share-options" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px;">
+                    <button onclick="shareViaLink()" class="action-btn secondary" style="display: flex; flex-direction: column; align-items: center; padding: 20px;">
+                        <span style="font-size: 2rem; margin-bottom: 8px;">🔗</span>
+                        <span>Copy Link</span>
+                    </button>
+                    <button onclick="shareViaEmail()" class="action-btn secondary" style="display: flex; flex-direction: column; align-items: center; padding: 20px;">
+                        <span style="font-size: 2rem; margin-bottom: 8px;">📧</span>
+                        <span>Email</span>
+                    </button>
+                    <button onclick="shareViaSocial('twitter')" class="action-btn secondary" style="display: flex; flex-direction: column; align-items: center; padding: 20px;">
+                        <span style="font-size: 2rem; margin-bottom: 8px;">🐦</span>
+                        <span>Twitter</span>
+                    </button>
+                    <button onclick="shareViaSocial('facebook')" class="action-btn secondary" style="display: flex; flex-direction: column; align-items: center; padding: 20px;">
+                        <span style="font-size: 2rem; margin-bottom: 8px;">📘</span>
+                        <span>Facebook</span>
+                    </button>
+                </div>
+                
+                <div style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; margin-bottom: 20px;">
+                    <p style="color: white; margin: 0 0 10px; font-weight: 600;">Profile Stats:</p>
+                    <div style="display: flex; justify-content: space-around; text-align: center;">
+                        <div>
+                            <div style="color: white; font-size: 1.2rem; font-weight: 700;" id="sharePostCount">0</div>
+                            <div style="color: rgba(255,255,255,0.7); font-size: 0.8rem;">Posts</div>
+                        </div>
+                        <div>
+                            <div style="color: white; font-size: 1.2rem; font-weight: 700;" id="shareLikeCount">0</div>
+                            <div style="color: rgba(255,255,255,0.7); font-size: 0.8rem;">Likes</div>
+                        </div>
+                        <div>
+                            <div style="color: white; font-size: 1.2rem; font-weight: 700;" id="shareFollowerCount">0</div>
+                            <div style="color: rgba(255,255,255,0.7); font-size: 0.8rem;">Followers</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="profile-modal-actions">
+                    <button onclick="closeShareProfileModal()" class="action-btn secondary">
+                        <span class="btn-icon">✖</span>
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(shareModal);
+    
+    // Load share statistics
+    loadShareStatistics();
+};
+
+window.closeShareProfileModal = function() {
+    console.log('🔗 Closing share profile modal');
+    
+    const shareModal = document.getElementById('shareProfileModal');
+    if (shareModal) {
+        shareModal.classList.remove('active');
+        setTimeout(() => {
+            shareModal.remove();
+        }, 400);
+    }
+};
+
+// Load statistics for share modal
+async function loadShareStatistics() {
+    try {
+        const postsResponse = await fetch('/api/posts?author=' + encodeURIComponent(currentUser.email));
+        const posts = await postsResponse.json();
+        
+        const postCount = posts.length;
+        const totalLikes = posts.reduce((sum, post) => sum + (post.likes || 0), 0);
+        const { followerCount } = await getRealFollowCounts(currentUser.email);
+        
+        // Update share modal statistics
+        document.getElementById('sharePostCount').textContent = postCount;
+        document.getElementById('shareLikeCount').textContent = totalLikes;
+        document.getElementById('shareFollowerCount').textContent = followerCount;
+        
+    } catch (error) {
+        console.error('❌ Error loading share statistics:', error);
+    }
+}
+
+// Share via link (copy to clipboard)
+window.shareViaLink = function() {
+    const profileUrl = `${window.location.origin}/profile/${currentUser.email}`;
+    
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(profileUrl).then(() => {
+            showToast('Profile link copied to clipboard! 📋');
+        }).catch(() => {
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = profileUrl;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            showToast('Profile link copied to clipboard! 📋');
+        });
+    } else {
+        showToast('Clipboard not available');
+    }
+};
+
+// Share via email
+window.shareViaEmail = function() {
+    const profileUrl = `${window.location.origin}/profile/${currentUser.email}`;
+    const userName = window.currentUserProfile.name || 'A Dreamer';
+    const userBio = window.currentUserProfile.bio || 'Check out my dreams on DreamPost!';
+    
+    const subject = `Check out ${userName}'s profile on DreamPost`;
+    const body = `Hi,\n\nI wanted to share my profile with you! ${userBio}\n\nCheck out my dreams and follow me on DreamPost:\n${profileUrl}\n\nBest regards,\n${userName}`;
+    
+    const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(mailtoUrl);
+    
+    showToast('Email client opened! 📧');
+};
+
+// Share via social media
+window.shareViaSocial = function(platform) {
+    const profileUrl = `${window.location.origin}/profile/${currentUser.email}`;
+    const userName = window.currentUserProfile.name || 'A Dreamer';
+    const userBio = window.currentUserProfile.bio || 'Check out my dreams on DreamPost!';
+    
+    let shareUrl = '';
+    const text = `Check out ${userName}'s profile on DreamPost! ${userBio}`;
+    
+    switch(platform) {
+        case 'twitter':
+            shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(profileUrl)}`;
+            break;
+        case 'facebook':
+            shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(profileUrl)}`;
+            break;
+        case 'linkedin':
+            shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(profileUrl)}`;
+            break;
+        case 'whatsapp':
+            shareUrl = `https://wa.me/?text=${encodeURIComponent(text + ' ' + profileUrl)}`;
+            break;
+        case 'telegram':
+            shareUrl = `https://t.me/share/url?url=${encodeURIComponent(profileUrl)}&text=${encodeURIComponent(text)}`;
+            break;
+    }
+    
+    if (shareUrl) {
+        window.open(shareUrl, '_blank', 'width=600,height=400');
+        showToast(`Shared to ${platform}! 🚀`);
+    } else {
+        showToast('Sharing not available for this platform');
+    }
+};
+
 function openPostOptions(postId, authorEmail) {
     if (!currentUser || !currentUser.email) {
         showToast('Please log in to use post options');
@@ -3396,9 +4079,9 @@ function openPostOptions(postId, authorEmail) {
                     <div class="option-icon report">🚨</div>
                     <span>Report Post</span>
                 </button>
-                <button class="post-option-btn" onclick="followUser('${authorEmail}')">
+                <button class="post-option-btn" id="postOptionFollowBtn_${postId}" onclick="followUser('${authorEmail}')">
                     <div class="option-icon follow">👤</div>
-                    <span>Follow User</span>
+                    <span id="postOptionFollowText_${postId}">Follow User</span>
                 </button>
                 <button class="post-option-btn" onclick="supportPost('${postId}')">
                     <div class="option-icon support">💝</div>
@@ -3414,6 +4097,16 @@ function openPostOptions(postId, authorEmail) {
     setTimeout(() => {
         modal.classList.add('show');
     }, 10);
+    
+    // Check follow state and update button text
+    if (currentUser && currentUser.email && authorEmail !== currentUser.email) {
+        checkIfFollowing(currentUser.email, authorEmail).then(isFollowing => {
+            const followTextEl = document.getElementById(`postOptionFollowText_${postId}`);
+            if (followTextEl) {
+                followTextEl.textContent = isFollowing ? 'Unfollow User' : 'Follow User';
+            }
+        });
+    }
 }
 
 function closePostOptions() {
@@ -3441,7 +4134,7 @@ function reportPost(postId, authorEmail) {
     closePostOptions();
 }
 
-function followUser(authorEmail) {
+async function followUser(authorEmail) {
     if (!currentUser || !currentUser.email) {
         showToast('Please log in to follow users');
         return;
@@ -3452,9 +4145,54 @@ function followUser(authorEmail) {
         return;
     }
 
-    // Here you would send follow request to server
-    console.log('👤 Follow request:', { follower: currentUser.email, following: authorEmail });
-    showToast(`Following ${authorEmail}!`);
+    try {
+        // Check if already following
+        const isFollowing = await checkIfFollowing(currentUser.email, authorEmail);
+        
+        if (isFollowing) {
+            // Unfollow
+            const response = await fetch('/api/users/unfollow', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    followerEmail: currentUser.email,
+                    followingEmail: authorEmail
+                })
+            });
+            
+            if (response.ok) {
+                showToast(`Unfollowed ${authorEmail}`);
+                dataCache.invalidateFollowCounts(authorEmail);
+            } else {
+                showToast('Failed to unfollow user');
+            }
+        } else {
+            // Follow
+            const response = await fetch('/api/users/follow', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    followerEmail: currentUser.email,
+                    followingEmail: authorEmail
+                })
+            });
+            
+            if (response.ok) {
+                showToast(`Now following ${authorEmail}!`);
+                dataCache.invalidateFollowCounts(authorEmail);
+            } else {
+                showToast('Failed to follow user');
+            }
+        }
+    } catch (error) {
+        console.error('❌ Error toggling follow:', error);
+        showToast('Failed to update follow status');
+    }
+    
     closePostOptions();
 }
 
@@ -3476,43 +4214,83 @@ async function togglePostBookmark(postId) {
         return;
     }
     
-    try {
-        const posts = await getPosts();
-        const post = posts.find(p => p.id === postId);
-        if (!post) {
-            showToast('Post not found');
-            return;
-        }
-
-        // Toggle bookmark status
-        post.bookmarked = !post.bookmarked;
-        
-        if (post.bookmarked) {
-            // Add to saved posts
-            post.bookmarkedBy = post.bookmarkedBy || [];
-            if (!post.bookmarkedBy.includes(currentUser.email)) {
-                post.bookmarkedBy.push(currentUser.email);
-            }
-            showToast('Post saved for future reference!');
-        } else {
-            // Remove from saved posts
-            post.bookmarkedBy = (post.bookmarkedBy || []).filter(email => email !== currentUser.email);
-            showToast('Post removed from saved');
-        }
-
-        // Update post in database
-        await updatePost(postId, { 
-            bookmarked: post.bookmarked, 
-            bookmarkedBy: post.bookmarkedBy 
-        });
-
-        // Update UI
-        await renderApp();
-
-    } catch (error) {
-        console.error('Error saving post:', error);
-        showToast('Failed to save post');
+    // Instant visual feedback on the button
+    const postCard = document.querySelector(`[data-post-id="${postId}"]`) || document.getElementById(`post-${postId}`);
+    let bookmarkBtn = null;
+    if (postCard) {
+        bookmarkBtn = postCard.querySelector('.bookmark-btn');
     }
+    // Fallback: find any bookmark button that calls this postId
+    if (!bookmarkBtn) {
+        bookmarkBtn = document.querySelector(`.bookmark-btn[onclick*="'${postId}'"]`);
+    }
+    
+    const isCurrentlyBookmarked = bookmarkBtn && bookmarkBtn.classList.contains('bookmarked');
+    
+    // Toggle UI instantly (don't wait for API)
+    if (bookmarkBtn) {
+        if (!isCurrentlyBookmarked) {
+            bookmarkBtn.classList.add('bookmarked');
+            const icon = bookmarkBtn.querySelector('.action-icon');
+            if (icon) { icon.setAttribute('fill', 'currentColor'); }
+        } else {
+            bookmarkBtn.classList.remove('bookmarked');
+            const icon = bookmarkBtn.querySelector('.action-icon');
+            if (icon) { icon.setAttribute('fill', 'none'); }
+        }
+    }
+    
+    showToast(!isCurrentlyBookmarked ? 'Post saved!' : 'Post removed from saved');
+    
+    // Update cache instantly
+    const cachedPosts = dataCache.posts;
+    const newBookmarked = !isCurrentlyBookmarked;
+    let newBookmarkedBy = [];
+    if (cachedPosts) {
+        const post = cachedPosts.find(p => p.id === postId);
+        if (post) {
+            post.bookmarked = newBookmarked;
+            post.bookmarkedBy = post.bookmarkedBy || [];
+            if (newBookmarked) {
+                if (!post.bookmarkedBy.includes(currentUser.email)) post.bookmarkedBy.push(currentUser.email);
+            } else {
+                post.bookmarkedBy = post.bookmarkedBy.filter(email => email !== currentUser.email);
+            }
+            newBookmarkedBy = post.bookmarkedBy;
+        }
+    }
+    
+    // --- BACKGROUND API CALL WITH RETRY ---
+    resilientSync(
+        () => updatePost(postId, { bookmarked: newBookmarked, bookmarkedBy: newBookmarkedBy }),
+        {
+            onFail: () => {
+                // Revert UI to previous state
+                if (bookmarkBtn) {
+                    if (isCurrentlyBookmarked) {
+                        bookmarkBtn.classList.add('bookmarked');
+                        const icon = bookmarkBtn.querySelector('.action-icon');
+                        if (icon) icon.setAttribute('fill', 'currentColor');
+                    } else {
+                        bookmarkBtn.classList.remove('bookmarked');
+                        const icon = bookmarkBtn.querySelector('.action-icon');
+                        if (icon) icon.setAttribute('fill', 'none');
+                    }
+                }
+                // Revert cache
+                if (cachedPosts) {
+                    const post = cachedPosts.find(p => p.id === postId);
+                    if (post) {
+                        post.bookmarked = isCurrentlyBookmarked;
+                        post.bookmarkedBy = isCurrentlyBookmarked 
+                            ? [...newBookmarkedBy, currentUser.email] 
+                            : newBookmarkedBy.filter(e => e !== currentUser.email);
+                    }
+                }
+                showToast('Save failed. Reverted.');
+            }
+        }
+    );
 }
 
 async function submitCommentFromModal() {
@@ -3541,47 +4319,59 @@ async function submitCommentFromModal() {
         return;
     }
     
-    try {
-        // Submit comment via API
-        const response = await fetch(`/api/posts/${postId}/comments`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                text: text,
-                authorEmail: currentUser.email,
-                authorName: currentUser.name
-            })
-        });
+    // --- INSTANT UI UPDATE ---
+    // Inject comment into modal immediately
+    const commentsList = document.getElementById('commentsList');
+    if (commentsList) {
+        const noComments = commentsList.querySelector('.no-comments');
+        if (noComments) noComments.remove();
         
-        if (!response.ok) {
-            throw new Error('Failed to submit comment');
-        }
-        
-        const newComment = await response.json();
-        
-        // Clear input
-        input.value = '';
-        
-        // Refresh posts data to get updated comments
-        const posts = await getPosts();
-        const post = posts.find(p => p.id === postId);
-        
-        if (post) {
-            // Update modal with fresh data
-            await updateCommentsModal(postId, post);
-            
-            // Update feed
-            await renderApp();
-        }
-        
-        showToast('Comment posted successfully!');
-        
-    } catch (error) {
-        console.error('❌ Error posting comment:', error);
-        showToast('Failed to post comment');
+        const commentHtml = `
+            <div class="comment-item" style="animation: fadeIn 0.3s ease;">
+                <div class="comment-avatar" style="background: linear-gradient(135deg, #00d4ff, #7b2ff7); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 14px; flex-shrink: 0;">
+                    ${(currentUser.name || 'U').slice(0, 1).toUpperCase()}
+                </div>
+                <div class="comment-content">
+                    <div class="comment-author">${currentUser.name}</div>
+                    <div class="comment-text">${text}</div>
+                    <div class="comment-time">Just now</div>
+                </div>
+            </div>
+        `;
+        commentsList.insertAdjacentHTML('afterbegin', commentHtml);
     }
+    
+    // Update comment count in feed instantly
+    const actionCount = document.querySelector(`[data-post-id="${postId}"] .comment-btn .action-count`);
+    if (actionCount) {
+        actionCount.textContent = (parseInt(actionCount.textContent) || 0) + 1;
+    }
+    
+    // Clear input and show toast immediately
+    input.value = '';
+    showToast('Comment posted!');
+    
+    // --- BACKGROUND API CALL WITH RETRY ---
+    const prevCount = actionCount ? parseInt(actionCount.textContent) || 0 : 0;
+    resilientSync(
+        () => fetch(`/api/posts/${postId}/comments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, authorEmail: currentUser.email, authorName: currentUser.name })
+        }),
+        {
+            onFail: () => {
+                // Revert: remove the optimistic comment from modal
+                if (commentsList && commentsList.firstElementChild) {
+                    commentsList.firstElementChild.remove();
+                }
+                if (actionCount) {
+                    actionCount.textContent = Math.max(prevCount - 1, 0);
+                }
+                showToast('Comment failed to save. Reverted.');
+            }
+        }
+    );
 }
 
 function closeCommentsModal() {
@@ -3593,25 +4383,8 @@ function closeCommentsModal() {
 }
 
 async function toggleBookmark(postId) {
-    try {
-        const posts = await getPosts();
-        const post = posts.find(p => p.id === postId);
-        if (!post) return;
-        
-        post.bookmarked = !post.bookmarked;
-        if (post.bookmarked) {
-            post.bookmarkedBy = post.bookmarkedBy || [];
-            post.bookmarkedBy.push(currentUser.email);
-        } else {
-            post.bookmarkedBy = (post.bookmarkedBy || []).filter(email => email !== currentUser.email);
-        }
-        
-        await updatePost(postId, { bookmarked: post.bookmarked, bookmarkedBy: post.bookmarkedBy });
-        showToast(post.bookmarked ? 'Story bookmarked!' : 'Bookmark removed');
-        await renderApp();
-    } catch (error) {
-        showToast(error.message);
-    }
+    // Delegate to the optimistic version
+    return togglePostBookmark(postId);
 }
 
 function showReactions(postId) {
@@ -4880,6 +5653,9 @@ async function handleModalCreateDreamSubmit() {
             throw error;
         }
         
+        // Instant sidebar post count update
+        incrementSidebarStat('postCount', 1);
+        
         // Close modal
         closeModal('createDreamModal');
         console.log('🎬 [DEBUG] Modal closed');
@@ -5052,6 +5828,9 @@ function updateProfileInfoUI() {
             console.log('👤 Updated user name element');
         }
     });
+    
+    // Also update sidebar user info immediately
+    updateSidebarUserInfo();
     
     // Update user avatars with new initials
     const initials = currentUser.name.slice(0, 2).toUpperCase();
@@ -5442,9 +6221,15 @@ function updateProfilePictureUI(imageData) {
     // Update profile page avatar
     if (elements.profileAvatarLarge) {
         elements.profileAvatarLarge.style.backgroundImage = `url('${imageData}')`;
+        elements.profileAvatarLarge.style.backgroundSize = 'cover';
+        elements.profileAvatarLarge.style.backgroundPosition = 'center';
+        elements.profileAvatarLarge.style.backgroundRepeat = 'no-repeat';
         elements.profileAvatarLarge.textContent = '';
         console.log('🖼️ Updated profile page avatar');
     }
+    
+    // Also update sidebar avatar immediately
+    updateSidebarUserInfo();
     
     // Update feed avatar
     if (elements.feedUserAvatar) {
@@ -5538,119 +6323,1171 @@ function openAIChat() {
     console.log('🤖 AI chat placeholder - full implementation coming later');
 }
 
-// Simplified, working image upload functions
-window.uploadProfileImage = function(event) {
-    console.log('📷 Upload profile image called');
-    const file = event.target.files[0];
-    if (!file) return;
+// Image upload functionality removed
+
+// Captivating Profile Popup Modal Functions
+window.openUserProfile = function() {
+    console.log('👤 Opening captivating profile popup');
     
-    const reader = new FileReader();
-    reader.onload = function() {
-        const imageData = reader.result;
-        console.log('📷 Image loaded, updating UI');
+    const modal = document.getElementById('userProfileModal');
+    if (modal) {
+        modal.classList.remove('hidden');
         
-        // Update current user
-        if (window.currentUser) {
-            window.currentUser.profileImage = imageData;
-        }
+        // Trigger opening animation
+        setTimeout(() => {
+            modal.classList.add('active');
+        }, 50);
         
-        // Update UI elements
-        const profileAvatar = document.getElementById('profileAvatarLarge');
-        if (profileAvatar) {
-            profileAvatar.style.backgroundImage = `url('${imageData}')`;
-            profileAvatar.textContent = '';
-        }
-        
-        const dropdownAvatar = document.getElementById('dropdownAvatar');
-        if (dropdownAvatar) {
-            dropdownAvatar.style.backgroundImage = `url('${imageData}')`;
-            dropdownAvatar.textContent = '';
-        }
-        
-        console.log('✅ Profile image updated successfully');
-        alert('Profile picture uploaded successfully!');
-    };
-    reader.readAsDataURL(file);
+        // Load user data into modal
+        loadUserProfileModalData();
+    }
 };
 
-window.uploadCoverImage = function(event) {
-    console.log('🖼️ Upload cover image called');
-    const file = event.target.files[0];
-    if (!file) return;
+window.closeUserProfileModal = function() {
+    console.log('👤 Closing profile popup');
     
-    const reader = new FileReader();
-    reader.onload = function() {
-        const imageData = reader.result;
-        console.log('🖼️ Image loaded, updating UI');
+    const modal = document.getElementById('userProfileModal');
+    if (modal) {
+        modal.classList.remove('active');
         
-        // Update current user
-        if (window.currentUser) {
-            window.currentUser.coverImage = imageData;
-        }
-        
-        // Update UI elements
-        const profileCover = document.getElementById('profileCover');
-        if (profileCover) {
-            profileCover.style.backgroundImage = `url('${imageData}')`;
-        }
-        
-        console.log('✅ Cover image updated successfully');
-        alert('Cover picture uploaded successfully!');
-    };
-    reader.readAsDataURL(file);
+        setTimeout(() => {
+            modal.classList.add('hidden');
+        }, 400);
+    }
 };
 
-// Simple, working image upload functions
-window.uploadProfileImageSimple = function(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+async function loadUserProfileModalData() {
+    console.log('👤 Loading user profile modal data from backend');
     
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const imageData = e.target.result;
-        
-        // Update profile avatar
-        const avatar = document.getElementById('profileAvatarLarge');
-        if (avatar) {
-            avatar.style.backgroundImage = `url('${imageData}')`;
-            avatar.style.backgroundSize = 'cover';
-            avatar.style.backgroundPosition = 'center';
-            avatar.style.backgroundRepeat = 'no-repeat';
-            avatar.style.borderRadius = '50%';
-            avatar.style.width = '120px';
-            avatar.style.height = '120px';
-            avatar.style.display = 'flex';
-            avatar.style.alignItems = 'center';
-            avatar.style.justifyContent = 'center';
-            avatar.textContent = '';
+    if (!currentUser) {
+        console.log('❌ No current user found');
+        return;
+    }
+    
+    try {
+        // Fetch user profile data from backend
+        const profileResponse = await fetch(`/api/users?email=${encodeURIComponent(currentUser.email)}`);
+        if (!profileResponse.ok) {
+            throw new Error('Failed to fetch user profile');
         }
+        
+        const userProfile = await profileResponse.json();
+        console.log('👤 User profile data loaded:', userProfile);
+        
+        // Update modal elements with live data
+        const elements = {
+            profileModalAvatar: document.getElementById('profileModalAvatar'),
+            profileModalUsername: document.getElementById('profileModalUsername'),
+            profileModalBio: document.getElementById('profileModalBio'),
+            profileModalEmail: document.getElementById('profileModalEmail'),
+            profileModalJoined: document.getElementById('profileModalJoined'),
+            profileModalPostCount: document.getElementById('profileModalPostCount'),
+            profileModalFollowerCount: document.getElementById('profileModalFollowerCount'),
+            profileModalLikeCount: document.getElementById('profileModalLikeCount'),
+            profileModalPostsGrid: document.getElementById('profileModalPostsGrid')
+        };
+        
+        // Update avatar with user's profile image or initials
+        if (elements.profileModalAvatar) {
+            if (userProfile.profileImage) {
+                elements.profileModalAvatar.innerHTML = `<img src="${userProfile.profileImage}" alt="Profile" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
+            } else {
+                const initials = userProfile.name ? userProfile.name.slice(0, 2).toUpperCase() : 'DP';
+                elements.profileModalAvatar.textContent = initials;
+            }
+        }
+        
+        // Update user info with live data
+        if (elements.profileModalUsername) {
+            elements.profileModalUsername.textContent = userProfile.name || 'User';
+        }
+        
+        if (elements.profileModalBio) {
+            elements.profileModalBio.textContent = userProfile.bio || 'No bio yet';
+        }
+        
+        if (elements.profileModalEmail) {
+            elements.profileModalEmail.textContent = userProfile.email || '';
+        }
+        
+        if (elements.profileModalJoined) {
+            const joinedDate = userProfile.joinedAt ? 
+                new Date(userProfile.joinedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long' }) :
+                'Joined January 2024';
+            elements.profileModalJoined.textContent = joinedDate;
+        }
+        
+        // Store user profile data globally for editing
+        window.currentUserProfile = userProfile;
+        
+        // Initialize follow button state
+        initializeFollowButton();
+        
+        // Load user statistics with animation
+        loadUserStatisticsModal();
+        
+        // Load user posts
+        loadUserPostsModal();
+        
+    } catch (error) {
+        console.error('❌ Error loading user profile data:', error);
+        // Show fallback UI with current user data
+        showProfileFallbackUI();
+    }
+}
+
+// Fallback UI if backend data fails to load
+function showProfileFallbackUI() {
+    console.log('🔄 Using fallback profile UI');
+    
+    const elements = {
+        profileModalAvatar: document.getElementById('profileModalAvatar'),
+        profileModalUsername: document.getElementById('profileModalUsername'),
+        profileModalBio: document.getElementById('profileModalBio'),
+        profileModalEmail: document.getElementById('profileModalEmail'),
+        profileModalJoined: document.getElementById('profileModalJoined')
     };
-    reader.readAsDataURL(file);
+    
+    if (elements.profileModalAvatar) {
+        const initials = currentUser.name ? currentUser.name.slice(0, 2).toUpperCase() : 'DP';
+        elements.profileModalAvatar.textContent = initials;
+    }
+    
+    if (elements.profileModalUsername) {
+        elements.profileModalUsername.textContent = currentUser.name || 'User';
+    }
+    
+    if (elements.profileModalBio) {
+        elements.profileModalBio.textContent = 'Loading profile...';
+    }
+    
+    if (elements.profileModalEmail) {
+        elements.profileModalEmail.textContent = currentUser.email || '';
+    }
+    
+    if (elements.profileModalJoined) {
+        elements.profileModalJoined.textContent = 'Joined recently';
+    }
+    
+    showToast('Profile data loaded with limited features');
+}
+
+async function loadUserStatisticsModal() {
+    console.log('\ud83d\udcca Loading user statistics for modal from backend');
+    
+    const profileEmail = window.currentUserProfile ? window.currentUserProfile.email : currentUser.email;
+    
+    // --- INSTANT DISPLAY FROM CACHE ---
+    updateSidebarStatsInstant(dataCache.userStats);
+    
+    try {
+        // Parallel fetch: posts + follow counts simultaneously
+        const [postsResponse, followData] = await Promise.all([
+            fetch('/api/posts?author=' + encodeURIComponent(profileEmail)),
+            dataCache.getCachedFollowCounts(profileEmail)
+        ]);
+        const posts = await postsResponse.json();
+        
+        // Calculate real statistics
+        const postCount = posts.length;
+        const totalLikes = posts.reduce((sum, post) => sum + (post.likes || 0), 0);
+        const { followerCount, followingCount } = followData;
+        
+        // Update cache with fresh data
+        dataCache.updateUserStats({ postCount, followerCount, followingCount, totalLikes });
+        
+        // Update statistics display with animation
+        const elements = {
+            profileModalPostCount: document.getElementById('profileModalPostCount'),
+            profileModalFollowerCount: document.getElementById('profileModalFollowerCount'),
+            profileModalFollowingCount: document.getElementById('profileModalFollowingCount'),
+            profileModalLikeCount: document.getElementById('profileModalLikeCount'),
+            sidebarPostCount: document.getElementById('sidebarPostCount'),
+            sidebarFollowerCount: document.getElementById('sidebarFollowerCount'),
+            sidebarFollowingCount: document.getElementById('sidebarFollowingCount')
+        };
+        
+        // Animate numbers
+        animateNumber(elements.profileModalPostCount, postCount);
+        animateNumber(elements.profileModalFollowerCount, followerCount);
+        animateNumber(elements.profileModalFollowingCount, followingCount);
+        animateNumber(elements.profileModalLikeCount, totalLikes);
+        
+        if (elements.sidebarPostCount) elements.sidebarPostCount.textContent = postCount;
+        if (elements.sidebarFollowerCount) elements.sidebarFollowerCount.textContent = followerCount;
+        if (elements.sidebarFollowingCount) elements.sidebarFollowingCount.textContent = followingCount;
+        
+        console.log(`📊 Modal stats loaded: ${postCount} posts, ${totalLikes} likes, ${followerCount} followers, ${followingCount} following`);
+        
+    } catch (error) {
+        console.error('❌ Error loading user statistics:', error);
+        // Show fallback statistics
+        showFallbackStatistics();
+    }
+}
+
+// Get real follower and following counts from database (cached)
+async function getRealFollowCounts(email) {
+    try {
+        const targetEmail = email || (window.currentUserProfile ? window.currentUserProfile.email : currentUser.email);
+        return await dataCache.getCachedFollowCounts(targetEmail);
+    } catch (error) {
+        console.error('❌ Error getting follow counts:', error);
+    }
+    return { followerCount: 0, followingCount: 0 };
+}
+
+// Legacy wrapper for backward compatibility
+async function getRealFollowerCount() {
+    const { followerCount } = await getRealFollowCounts();
+    return followerCount;
+}
+
+// Fallback — returns 0 (real data comes from the database)
+async function calculateFollowerCount() {
+    return 0;
+}
+
+// Fallback statistics if backend fails
+function showFallbackStatistics() {
+    const elements = {
+        profileModalPostCount: document.getElementById('profileModalPostCount'),
+        profileModalFollowerCount: document.getElementById('profileModalFollowerCount'),
+        profileModalFollowingCount: document.getElementById('profileModalFollowingCount'),
+        profileModalLikeCount: document.getElementById('profileModalLikeCount')
+    };
+    
+    if (elements.profileModalPostCount) elements.profileModalPostCount.textContent = '0';
+    if (elements.profileModalFollowerCount) elements.profileModalFollowerCount.textContent = '0';
+    if (elements.profileModalFollowingCount) elements.profileModalFollowingCount.textContent = '0';
+    if (elements.profileModalLikeCount) elements.profileModalLikeCount.textContent = '0';
+}
+
+// Full Edit Profile Functionality
+window.openEditProfileModal = function() {
+    console.log('✏️ Opening edit profile modal');
+    
+    if (!window.currentUserProfile) {
+        showToast('Profile data not loaded. Please try again.');
+        return;
+    }
+    
+    // Create edit profile modal
+    const editModal = document.createElement('div');
+    editModal.className = 'profile-modal-overlay active';
+    editModal.id = 'editProfileModal';
+    editModal.innerHTML = `
+        <div class="profile-modal-backdrop" onclick="closeEditProfileModal()"></div>
+        <div class="profile-modal-container" style="max-width: 500px;">
+            <div class="profile-modal-header">
+                <div class="profile-modal-close" onclick="closeEditProfileModal()">
+                    <span class="close-icon">×</span>
+                </div>
+                <h2 style="color: white; margin: 0;">Edit Profile</h2>
+            </div>
+            <div class="profile-modal-body">
+                <form id="editProfileForm">
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label style="color: white; display: block; margin-bottom: 8px;">Name</label>
+                        <input type="text" id="editName" value="${window.currentUserProfile.name || ''}" 
+                               style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label style="color: white; display: block; margin-bottom: 8px;">Bio</label>
+                        <textarea id="editBio" rows="3" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; resize: vertical;">${window.currentUserProfile.bio || ''}</textarea>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label style="color: white; display: block; margin-bottom: 8px;">Website</label>
+                        <input type="url" id="editWebsite" value="${window.currentUserProfile.website || ''}" 
+                               style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label style="color: white; display: block; margin-bottom: 8px;">Location</label>
+                        <input type="text" id="editLocation" value="${window.currentUserProfile.location || ''}" 
+                               style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label style="color: white; display: block; margin-bottom: 8px;">Profile Image URL</label>
+                        <input type="url" id="editProfileImage" value="${window.currentUserProfile.profileImage || ''}" 
+                               style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+                    </div>
+                    
+                    <div class="profile-modal-actions">
+                        <button type="button" onclick="closeEditProfileModal()" class="action-btn secondary">
+                            <span class="btn-icon">✖</span>
+                            Cancel
+                        </button>
+                        <button type="submit" class="action-btn primary">
+                            <span class="btn-icon">💾</span>
+                            Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(editModal);
+    
+    // Add form submit handler
+    document.getElementById('editProfileForm').addEventListener('submit', handleEditProfileSubmit);
 };
 
-window.uploadSidebarProfileImage = function(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+window.closeEditProfileModal = function() {
+    console.log('✏️ Closing edit profile modal');
     
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const imageData = e.target.result;
-        
-        // Update sidebar avatar
-        const sidebarAvatar = document.getElementById('sidebarUserAvatar');
-        if (sidebarAvatar) {
-            sidebarAvatar.style.backgroundImage = `url('${imageData}')`;
-            sidebarAvatar.style.backgroundSize = 'cover';
-            sidebarAvatar.style.backgroundPosition = 'center';
-            sidebarAvatar.style.backgroundRepeat = 'no-repeat';
-            sidebarAvatar.style.borderRadius = '50%';
-            sidebarAvatar.style.width = '40px';
-            sidebarAvatar.style.height = '40px';
-            sidebarAvatar.textContent = '';
-        }
-    };
-    reader.readAsDataURL(file);
+    const editModal = document.getElementById('editProfileModal');
+    if (editModal) {
+        editModal.classList.remove('active');
+        setTimeout(() => {
+            editModal.remove();
+        }, 400);
+    }
 };
+
+// Handle edit profile form submission
+async function handleEditProfileSubmit(event) {
+    event.preventDefault();
+    console.log('💾 Saving profile changes...');
+    
+    try {
+        const formData = {
+            email: currentUser.email,
+            name: document.getElementById('editName').value.trim(),
+            bio: document.getElementById('editBio').value.trim(),
+            website: document.getElementById('editWebsite').value.trim(),
+            location: document.getElementById('editLocation').value.trim(),
+            profileImage: document.getElementById('editProfileImage').value.trim()
+        };
+        
+        // Validate required fields
+        if (!formData.name) {
+            showToast('Name is required');
+            return;
+        }
+        
+        // Send update request to backend
+        const response = await fetch('/api/users/profile-info', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to update profile');
+        }
+        
+        const updatedProfile = await response.json();
+        console.log('✅ Profile updated successfully:', updatedProfile);
+        
+        // Update current user data
+        currentUser.name = formData.name;
+        currentUser.bio = formData.bio;
+        currentUser.website = formData.website;
+        currentUser.location = formData.location;
+        currentUser.profileImage = formData.profileImage;
+        
+        // Update global profile data used by modal
+        if (window.currentUserProfile) {
+            window.currentUserProfile.name = formData.name;
+            window.currentUserProfile.bio = formData.bio;
+            window.currentUserProfile.website = formData.website;
+            window.currentUserProfile.location = formData.location;
+            window.currentUserProfile.profileImage = formData.profileImage;
+        }
+        
+        // Update sidebar user info
+        updateSidebarUserInfo();
+        
+        // Close edit modal
+        closeEditProfileModal();
+        
+        // Refresh profile modal
+        loadUserProfileModalData();
+        
+        showToast('Profile updated successfully! ✨');
+        
+    } catch (error) {
+        console.error('❌ Error updating profile:', error);
+        showToast('Failed to update profile. Please try again.');
+    }
+}
+
+// Update sidebar user info
+function updateSidebarUserInfo() {
+    const sidebarUserName = document.getElementById('sidebarUserName');
+    const sidebarUserAvatar = document.getElementById('sidebarUserAvatar');
+    
+    if (sidebarUserName) {
+        sidebarUserName.textContent = currentUser.name || 'User';
+    }
+    
+    if (sidebarUserAvatar) {
+        if (currentUser.profileImage) {
+            sidebarUserAvatar.innerHTML = `<img src="${currentUser.profileImage}" alt="Profile" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
+        } else {
+            const initials = currentUser.name ? currentUser.name.slice(0, 2).toUpperCase() : 'DP';
+            sidebarUserAvatar.textContent = initials;
+        }
+    }
+}
+
+// TikTok-style Follow System
+window.toggleFollow = async function() {
+    if (!currentUser || !window.currentUserProfile) {
+        showToast('Please log in to follow users');
+        return;
+    }
+    
+    // Don't allow following yourself
+    if (currentUser.email === window.currentUserProfile.email) {
+        showToast('You cannot follow yourself');
+        return;
+    }
+    
+    const followBtn = document.getElementById('followBtn');
+    const followIcon = document.getElementById('followIcon');
+    const followText = document.getElementById('followText');
+    
+    // --- INSTANT UI UPDATE (optimistic) ---
+    const isCurrentlyFollowing = followBtn.classList.contains('following');
+    const willFollow = !isCurrentlyFollowing;
+    
+    if (willFollow) {
+        followBtn.classList.add('following');
+        followIcon.textContent = 'check';
+        followText.textContent = 'Following';
+        incrementSidebarStat('followingCount', 1);
+        showToast(`Now following ${window.currentUserProfile.name}!`);
+    } else {
+        followBtn.classList.remove('following');
+        followIcon.textContent = 'add';
+        followText.textContent = 'Follow';
+        incrementSidebarStat('followingCount', -1);
+        showToast(`Unfollowed ${window.currentUserProfile.name}`);
+    }
+    
+    // --- BACKGROUND API CALL WITH RETRY ---
+    const endpoint = willFollow ? '/api/users/follow' : '/api/users/unfollow';
+    resilientSync(
+        () => fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                followerEmail: currentUser.email,
+                followingEmail: window.currentUserProfile.email
+            })
+        }),
+        {
+            onFail: () => {
+                // Revert UI
+                if (willFollow) {
+                    followBtn.classList.remove('following');
+                    followIcon.textContent = 'add';
+                    followText.textContent = 'Follow';
+                    incrementSidebarStat('followingCount', -1);
+                } else {
+                    followBtn.classList.add('following');
+                    followIcon.textContent = 'check';
+                    followText.textContent = 'Following';
+                    incrementSidebarStat('followingCount', 1);
+                }
+                showToast('Follow action failed. Reverted.');
+            }
+        }
+    );
+};
+
+// Check if user is following another user
+async function checkIfFollowing(followerEmail, followingEmail) {
+    try {
+        const response = await fetch(`/api/users/check-follow?follower=${encodeURIComponent(followerEmail)}&following=${encodeURIComponent(followingEmail)}`);
+        if (response.ok) {
+            const result = await response.json();
+            return result.isFollowing;
+        }
+    } catch (error) {
+        console.error('❌ Error checking follow status:', error);
+    }
+    return false;
+}
+
+// Update follower count in UI across all elements
+function updateFollowerCount(change) {
+    const followerElements = [
+        document.getElementById('profileModalFollowerCount'),
+        document.getElementById('sidebarFollowerCount'),
+        document.getElementById('shareFollowerCount')
+    ];
+    
+    followerElements.forEach(el => {
+        if (el) {
+            const currentCount = parseInt(el.textContent) || 0;
+            const newCount = Math.max(0, currentCount + change);
+            animateNumber(el, newCount);
+        }
+    });
+}
+
+// Update following count in UI across all elements
+function updateFollowingCount(change) {
+    const followingElements = [
+        document.getElementById('profileModalFollowingCount'),
+        document.getElementById('sidebarFollowingCount')
+    ];
+    
+    followingElements.forEach(el => {
+        if (el) {
+            const currentCount = parseInt(el.textContent) || 0;
+            const newCount = Math.max(0, currentCount + change);
+            animateNumber(el, newCount);
+        }
+    });
+}
+
+// Set exact follow counts from server response (ensures perfect sync)
+function setFollowCountsFromServer(followerCount, followingCount) {
+    if (followerCount !== undefined) {
+        const followerElements = [
+            document.getElementById('profileModalFollowerCount'),
+            document.getElementById('sidebarFollowerCount'),
+            document.getElementById('shareFollowerCount')
+        ];
+        followerElements.forEach(el => {
+            if (el) animateNumber(el, followerCount);
+        });
+    }
+    
+    if (followingCount !== undefined) {
+        const followingElements = [
+            document.getElementById('profileModalFollowingCount'),
+            document.getElementById('sidebarFollowingCount')
+        ];
+        followingElements.forEach(el => {
+            if (el) animateNumber(el, followingCount);
+        });
+    }
+}
+
+// Initialize follow button state when profile loads
+async function initializeFollowButton() {
+    if (!currentUser || !window.currentUserProfile) return;
+    
+    // Don't show follow button for own profile
+    if (currentUser.email === window.currentUserProfile.email) {
+        const followBtn = document.getElementById('followBtn');
+        if (followBtn) {
+            followBtn.style.display = 'none';
+        }
+        return;
+    }
+    
+    const isFollowing = await checkIfFollowing(currentUser.email, window.currentUserProfile.email);
+    const followBtn = document.getElementById('followBtn');
+    const followIcon = document.getElementById('followIcon');
+    const followText = document.getElementById('followText');
+    
+    if (isFollowing) {
+        followBtn.classList.add('following');
+        followIcon.textContent = 'check';
+        followText.textContent = 'Following';
+    } else {
+        followBtn.classList.remove('following');
+        followIcon.textContent = 'add';
+        followText.textContent = 'Follow';
+    }
+}
+
+function animateNumber(element, target) {
+    if (!element) return;
+    
+    // Skip animation for zero or if element is not visible
+    if (target === 0) {
+        element.textContent = '0';
+        return;
+    }
+    
+    const duration = 800;
+    const startTime = performance.now();
+    const startVal = parseInt(element.textContent) || 0;
+    const diff = target - startVal;
+    
+    // No animation needed if already at target
+    if (diff === 0) return;
+    
+    function step(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease-out curve for snappy feel
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const current = Math.floor(startVal + diff * eased);
+        element.textContent = current.toLocaleString();
+        
+        if (progress < 1) {
+            requestAnimationFrame(step);
+        } else {
+            element.textContent = target.toLocaleString();
+        }
+    }
+    
+    requestAnimationFrame(step);
+}
+
+async function loadUserPostsModal() {
+    console.log('📝 Loading user posts for modal');
+    
+    try {
+        const response = await fetch('/api/posts?author=' + encodeURIComponent(currentUser.email));
+        const posts = await response.json();
+        
+        const postsGrid = document.getElementById('profileModalPostsGrid');
+        if (!postsGrid) return;
+        
+        postsGrid.innerHTML = '';
+        
+        if (posts.length === 0) {
+            postsGrid.innerHTML = `
+                <div class="empty-state" style="text-align: center; padding: 40px; color: rgba(255, 255, 255, 0.6);">
+                    <p style="font-size: 1.2rem; margin-bottom: 10px;">No posts yet</p>
+                    <p>Share your first dream to get started!</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Create post cards for the grid
+        posts.forEach((post, index) => {
+            setTimeout(() => {
+                const postCard = createProfilePostCard(post);
+                postCard.style.opacity = '0';
+                postCard.style.transform = 'translateY(20px)';
+                postsGrid.appendChild(postCard);
+                
+                // Animate card appearance
+                setTimeout(() => {
+                    postCard.style.transition = 'all 0.5s ease';
+                    postCard.style.opacity = '1';
+                    postCard.style.transform = 'translateY(0)';
+                }, 50);
+            }, index * 100);
+        });
+        
+        console.log(`📝 Loaded ${posts.length} user posts in modal`);
+        
+    } catch (error) {
+        console.error('❌ Error loading user posts:', error);
+    }
+}
+
+async function loadUserStatistics() {
+    console.log('📊 Loading user statistics');
+    
+    // --- INSTANT DISPLAY FROM CACHE ---
+    updateSidebarStatsInstant(dataCache.userStats);
+    
+    try {
+        // Parallel fetch: posts + follow counts simultaneously
+        const [response, followData] = await Promise.all([
+            fetch('/api/posts?author=' + encodeURIComponent(currentUser.email)),
+            dataCache.getCachedFollowCounts(currentUser.email)
+        ]);
+        const posts = await response.json();
+        
+        // Calculate statistics
+        const postCount = posts.length;
+        const totalLikes = posts.reduce((sum, post) => sum + (post.likes || 0), 0);
+        const { followerCount, followingCount } = followData;
+        
+        // Update cache with fresh data
+        dataCache.updateUserStats({ postCount, followerCount, followingCount, totalLikes });
+        
+        // Update statistics display
+        const elements = {
+            profilePostCount: document.getElementById('profilePostCount'),
+            profileFollowerCount: document.getElementById('profileFollowerCount'),
+            profileFollowingCount: document.getElementById('profileFollowingCount'),
+            profileLikeCount: document.getElementById('profileLikeCount'),
+            sidebarPostCount: document.getElementById('sidebarPostCount'),
+            sidebarFollowerCount: document.getElementById('sidebarFollowerCount'),
+            sidebarFollowingCount: document.getElementById('sidebarFollowingCount')
+        };
+        
+        if (elements.profilePostCount) elements.profilePostCount.textContent = postCount;
+        if (elements.profileFollowerCount) elements.profileFollowerCount.textContent = followerCount;
+        if (elements.profileFollowingCount) elements.profileFollowingCount.textContent = followingCount;
+        if (elements.profileLikeCount) elements.profileLikeCount.textContent = totalLikes;
+        if (elements.sidebarPostCount) elements.sidebarPostCount.textContent = postCount;
+        if (elements.sidebarFollowerCount) elements.sidebarFollowerCount.textContent = followerCount;
+        if (elements.sidebarFollowingCount) elements.sidebarFollowingCount.textContent = followingCount;
+        
+        console.log(`📊 Stats loaded: ${postCount} posts, ${totalLikes} likes, ${followerCount} followers, ${followingCount} following`);
+        
+    } catch (error) {
+        console.error('❌ Error loading user statistics:', error);
+    }
+}
+
+async function loadUserPosts() {
+    console.log('📝 Loading user posts');
+    
+    try {
+        const response = await fetch('/api/posts?author=' + encodeURIComponent(currentUser.email));
+        const posts = await response.json();
+        
+        const postsGrid = document.getElementById('profilePostsGrid');
+        if (!postsGrid) return;
+        
+        postsGrid.innerHTML = '';
+        
+        if (posts.length === 0) {
+            postsGrid.innerHTML = `
+                <div class="empty-state">
+                    <p>No posts yet</p>
+                    <p>Share your first dream to get started!</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Create post cards for the grid
+        posts.forEach(post => {
+            const postCard = createProfilePostCard(post);
+            postsGrid.appendChild(postCard);
+        });
+        
+        console.log(`📝 Loaded ${posts.length} user posts`);
+        
+    } catch (error) {
+        console.error('❌ Error loading user posts:', error);
+    }
+}
+
+function createProfilePostCard(post) {
+    const card = document.createElement('div');
+    card.className = 'post-card';
+    
+    // Create card content based on post type
+    let cardContent = '';
+    
+    // Check if current user has liked this post
+    const isLiked = currentUser && post.likedBy && post.likedBy.includes(currentUser.email);
+    
+    if (post.image) {
+        cardContent = `
+            <img src="${post.image}" alt="${post.title}" class="post-card-image">
+            <div class="post-card-content">
+                <div class="post-card-title">${post.title}</div>
+                <div class="post-card-meta">
+                    <span class="like-count">${post.likes || 0} likes</span>
+                    <span class="post-date">${formatDate(post.createdAt)}</span>
+                </div>
+                <div class="post-card-actions">
+                    <button class="like-btn ${isLiked ? 'liked' : ''}" onclick="togglePostLike('${post.id}')">
+                        <span class="like-icon">${isLiked ? '❤️' : '🤍'}</span>
+                    </button>
+                </div>
+            </div>
+        `;
+    } else {
+        cardContent = `
+            <div class="post-card-content">
+                <div class="post-card-title">${post.title}</div>
+                <div class="post-card-excerpt">${post.text ? post.text.substring(0, 100) + '...' : ''}</div>
+                <div class="post-card-meta">
+                    <span class="like-count">${post.likes || 0} likes</span>
+                    <span class="post-date">${formatDate(post.createdAt)}</span>
+                </div>
+                <div class="post-card-actions">
+                    <button class="like-btn ${isLiked ? 'liked' : ''}" onclick="togglePostLike('${post.id}')">
+                        <span class="like-icon">${isLiked ? '❤️' : '🤍'}</span>
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+    
+    card.innerHTML = cardContent;
+    return card;
+}
+
+// Toggle like functionality for posts
+window.togglePostLike = async function(postId) {
+    if (!currentUser) {
+        showToast('Please log in to like posts!');
+        return;
+    }
+    
+    try {
+        console.log(`❤️ Toggling like for post: ${postId}`);
+        
+        // Get current post data
+        const response = await fetch(`/api/posts/${postId}`);
+        const post = await response.json();
+        
+        // Check if user has already liked
+        const isLiked = post.likedBy && post.likedBy.includes(currentUser.email);
+        
+        if (isLiked) {
+            // Unlike the post
+            const unlikeResponse = await fetch(`/api/posts/${postId}/unlike`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (unlikeResponse.ok) {
+                post.likes = Math.max(0, (post.likes || 0) - 1);
+                post.likedBy = post.likedBy.filter(email => email !== currentUser.email);
+                showToast('Removed like ❤️');
+            }
+        } else {
+            // Like the post
+            const likeResponse = await fetch(`/api/posts/${postId}/like`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (likeResponse.ok) {
+                post.likes = (post.likes || 0) + 1;
+                if (!post.likedBy) post.likedBy = [];
+                post.likedBy.push(currentUser.email);
+                showToast('Added like ❤️');
+            }
+        }
+        
+        // Refresh the profile modal to show updated like status
+        if (document.getElementById('userProfileModal') && !document.getElementById('userProfileModal').classList.contains('hidden')) {
+            loadUserPostsModal();
+        }
+        
+        // Also refresh the main feed if visible
+        if (document.getElementById('feedList') && !document.getElementById('feedList').classList.contains('hidden')) {
+            loadFeed();
+        }
+        
+    } catch (error) {
+        console.error('❌ Error toggling like:', error);
+        showToast('Error updating like status');
+    }
+};
+
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now - date);
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+    if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+    return `${Math.floor(diffDays / 365)} years ago`;
+}
+
+function openPostDetail(postId) {
+    console.log('📖 Opening post detail:', postId);
+    // This would open a detailed view of the post
+    // For now, just log the action
+    showToast('Post detail view coming soon!');
+}
+
+function switchProfileTab(tabName) {
+    console.log('🔄 Switching to profile tab:', tabName);
+    
+    // Remove active class from all tabs and content
+    const allTabs = document.querySelectorAll('.profile-tab');
+    const allContent = document.querySelectorAll('.profile-tab-content');
+    
+    allTabs.forEach(tab => tab.classList.remove('active'));
+    allContent.forEach(content => content.classList.add('hidden'));
+    
+    // Add active class to selected tab and content
+    const selectedTab = document.querySelector(`.profile-tab[data-tab="${tabName}"]`);
+    const selectedContent = document.getElementById(`profile${tabName.charAt(0).toUpperCase() + tabName.slice(1)}Tab`);
+    
+    if (selectedTab) selectedTab.classList.add('active');
+    if (selectedContent) selectedContent.classList.remove('hidden');
+    
+    // Load content for the selected tab
+    if (tabName === 'liked') {
+        loadLikedPosts();
+    } else if (tabName === 'bookmarks') {
+        loadBookmarkedPostsModal();
+    }
+}
+
+async function loadLikedPostsModal() {
+    console.log('❤️ Loading liked posts for modal from backend');
+    const likedGrid = document.getElementById('profileModalLikedGrid');
+    if (!likedGrid) return;
+    
+    try {
+        // Get all posts and filter for posts liked by current user
+        const postsResponse = await fetch('/api/posts');
+        const allPosts = await postsResponse.json();
+        
+        // Filter posts that current user has liked
+        const likedPosts = allPosts.filter(post => 
+            post.likedBy && post.likedBy.includes(currentUser.email)
+        );
+        
+        likedGrid.innerHTML = '';
+        
+        if (likedPosts.length === 0) {
+            likedGrid.innerHTML = `
+                <div class="empty-state" style="text-align: center; padding: 40px; color: rgba(255, 255, 255, 0.6);">
+                    <p style="font-size: 1.2rem; margin-bottom: 10px;">No liked posts yet</p>
+                    <p>Like posts to see them here!</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Create post cards for liked posts
+        likedPosts.forEach((post, index) => {
+            setTimeout(() => {
+                const postCard = createProfilePostCard(post);
+                postCard.style.opacity = '0';
+                postCard.style.transform = 'translateY(20px)';
+                likedGrid.appendChild(postCard);
+                
+                // Animate card appearance
+                setTimeout(() => {
+                    postCard.style.transition = 'all 0.5s ease';
+                    postCard.style.opacity = '1';
+                    postCard.style.transform = 'translateY(0)';
+                }, 50);
+            }, index * 100);
+        });
+        
+        console.log(`❤️ Loaded ${likedPosts.length} liked posts`);
+        
+    } catch (error) {
+        console.error('❌ Error loading liked posts:', error);
+        likedGrid.innerHTML = `
+            <div class="empty-state" style="text-align: center; padding: 40px; color: rgba(255, 255, 255, 0.6);">
+                <p style="font-size: 1.2rem; margin-bottom: 10px;">Error loading liked posts</p>
+                <p>Please try again later</p>
+            </div>
+        `;
+    }
+}
+
+async function loadBookmarkedPostsModal() {
+    console.log('🔖 Loading bookmarked posts for modal from backend');
+    const bookmarksGrid = document.getElementById('profileModalBookmarksGrid');
+    if (!bookmarksGrid) return;
+    
+    try {
+        // Get user's bookmarks from database
+        const bookmarksResponse = await fetch(`/api/bookmarks?user=${encodeURIComponent(currentUser.email)}`);
+        let bookmarks = [];
+        
+        if (bookmarksResponse.ok) {
+            bookmarks = await bookmarksResponse.json();
+        }
+        
+        if (bookmarks.length === 0) {
+            bookmarksGrid.innerHTML = `
+                <div class="empty-state" style="text-align: center; padding: 40px; color: rgba(255, 255, 255, 0.6);">
+                    <p style="font-size: 1.2rem; margin-bottom: 10px;">No bookmarked posts yet</p>
+                    <p>Bookmark posts to see them here!</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Get full post details for bookmarked posts
+        const postsResponse = await fetch('/api/posts');
+        const allPosts = await postsResponse.json();
+        
+        const bookmarkedPosts = bookmarks.map(bookmark => 
+            allPosts.find(post => post.id === bookmark.postId)
+        ).filter(post => post !== undefined);
+        
+        bookmarksGrid.innerHTML = '';
+        
+        // Create post cards for bookmarked posts
+        bookmarkedPosts.forEach((post, index) => {
+            setTimeout(() => {
+                const postCard = createProfilePostCard(post);
+                postCard.style.opacity = '0';
+                postCard.style.transform = 'translateY(20px)';
+                bookmarksGrid.appendChild(postCard);
+                
+                // Animate card appearance
+                setTimeout(() => {
+                    postCard.style.transition = 'all 0.5s ease';
+                    postCard.style.opacity = '1';
+                    postCard.style.transform = 'translateY(0)';
+                }, 50);
+            }, index * 100);
+        });
+        
+        console.log(`🔖 Loaded ${bookmarkedPosts.length} bookmarked posts`);
+        
+    } catch (error) {
+        console.error('❌ Error loading bookmarked posts:', error);
+        bookmarksGrid.innerHTML = `
+            <div class="empty-state" style="text-align: center; padding: 40px; color: rgba(255, 255, 255, 0.6);">
+                <p style="font-size: 1.2rem; margin-bottom: 10px;">Error loading bookmarked posts</p>
+                <p>Please try again later</p>
+            </div>
+        `;
+    }
+}
+
+// Helper function to format email to a readable name
+function formatEmailToName(email) {
+    if (!email) return 'User';
+    
+    // Extract username part before @
+    const username = email.split('@')[0];
+    
+    // Replace dots, underscores, and hyphens with spaces
+    let formattedName = username.replace(/[._-]/g, ' ');
+    
+    // Capitalize first letter of each word
+    formattedName = formattedName.replace(/\b\w/g, l => l.toUpperCase());
+    
+    // Remove any extra spaces
+    formattedName = formattedName.replace(/\s+/g, ' ').trim();
+    
+    // If the result is empty or too short, use a default
+    if (!formattedName || formattedName.length < 2) {
+        formattedName = 'Dream User';
+    }
+    
+    return formattedName;
+}
+
+// Helper function to save user name to database
+async function saveUserNameToDatabase(email, name) {
+    try {
+        const response = await fetch(`${API_URL}/update-name`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email, name }),
+        });
+        
+        if (!response.ok) {
+            console.error('Failed to save user name to database');
+        } else {
+            console.log('✅ User name saved to database:', name);
+        }
+    } catch (error) {
+        console.error('Error saving user name to database:', error);
+    }
+}
+
+// Helper function to update sidebar user info immediately
+function updateSidebarUserInfo() {
+    if (!currentUser) return;
+    
+    console.log('🔄 Updating sidebar user info immediately');
+    
+    // Update sidebar user name
+    const sidebarUserName = document.getElementById('sidebarUserName');
+    if (sidebarUserName) {
+        sidebarUserName.textContent = currentUser.name;
+        console.log('✅ Sidebar user name updated:', currentUser.name);
+    }
+    
+    // Update sidebar user avatar with initials
+    const sidebarUserAvatar = document.getElementById('sidebarUserAvatar');
+    if (sidebarUserAvatar) {
+        if (currentUser.profileImage) {
+            // Show profile image if available
+            sidebarUserAvatar.style.backgroundImage = `url('${currentUser.profileImage}')`;
+            sidebarUserAvatar.style.backgroundSize = 'cover';
+            sidebarUserAvatar.style.backgroundPosition = 'center';
+            sidebarUserAvatar.style.backgroundRepeat = 'no-repeat';
+            sidebarUserAvatar.textContent = '';
+            console.log('✅ Sidebar avatar updated with profile image');
+        } else {
+            // Show initials if no profile image
+            const initials = currentUser.name.slice(0, 2).toUpperCase();
+            sidebarUserAvatar.textContent = initials;
+            sidebarUserAvatar.style.backgroundImage = '';
+            console.log('✅ Sidebar avatar updated with initials:', initials);
+        }
+    }
+}
+
+// Helper function to save profile image to database
+async function saveProfileImageToDatabase(imageData) {
+    try {
+        const response = await fetch(`${API_URL}/update-profile-image`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+                email: currentUser.email, 
+                profileImage: imageData 
+            }),
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to save profile image to database');
+        }
+        
+        console.log('✅ Profile image saved to database');
+    } catch (error) {
+        console.error('❌ Error saving profile image to database:', error);
+        throw error;
+    }
+}
+
+// Helper function to save cover image to database
+async function saveCoverImageToDatabase(imageData) {
+    try {
+        const response = await fetch(`${API_URL}/update-cover-image`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+                email: currentUser.email, 
+                coverImage: imageData 
+            }),
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to save cover image to database');
+        }
+        
+        console.log('✅ Cover image saved to database');
+    } catch (error) {
+        console.error('❌ Error saving cover image to database:', error);
+        throw error;
+    }
+}
+
+// Helper function to update cover image UI
+function updateCoverImageUI(imageData) {
+    // Update profile cover
+    const profileCover = document.getElementById('profileCover');
+    if (profileCover) {
+        profileCover.style.backgroundImage = `url('${imageData}')`;
+        profileCover.style.backgroundSize = 'cover';
+        profileCover.style.backgroundPosition = 'center';
+        profileCover.style.backgroundRepeat = 'no-repeat';
+        console.log('✅ Profile cover updated');
+    }
+}
 
 // Image Preview Functions
 window.openImagePreview = function(imageSrc) {
