@@ -10,8 +10,91 @@ const { Pool } = require('pg');
 // Supabase PostgreSQL Connection
 const supabasePool = new Pool({
     connectionString: 'postgresql://postgres:Mrlamoraugustine@123@db.upkwtzufdedsfjklzmdq.supabase.co:5432/postgres',
-    ssl: { rejectUnauthorized: false }
+    ssl: { rejectUnauthorized: false },
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000
 });
+
+// Supabase client helper (uses the pool for direct queries)
+function createSupabaseClient() {
+    return {
+        from: (table) => ({
+            insert: async (data) => supabasePool.query(
+                `INSERT INTO ${table} (${Object.keys(data).join(', ')}) VALUES (${Object.keys(data).map((_, i) => '$' + (i + 1)).join(', ')})`,
+                Object.values(data)
+            ).catch(e => console.warn(`Supabase insert to ${table} failed:`, e.message)),
+            update: (data) => ({
+                eq: (col, val) => supabasePool.query(
+                    `UPDATE ${table} SET ${Object.keys(data).map((k, i) => `${k} = $${i + 1}`).join(', ')} WHERE ${col} = $${Object.keys(data).length + 1}`,
+                    [...Object.values(data), val]
+                ).catch(e => console.warn(`Supabase update ${table} failed:`, e.message))
+            }),
+            delete: () => ({
+                eq: (col1, val1) => ({
+                    eq: (col2, val2) => supabasePool.query(
+                        `DELETE FROM ${table} WHERE ${col1} = $1 AND ${col2} = $2`,
+                        [val1, val2]
+                    ).catch(e => console.warn(`Supabase delete from ${table} failed:`, e.message))
+                })
+            })
+        })
+    };
+}
+
+// ===== SERVER-SIDE CACHE =====
+const serverCache = {
+    posts: null,
+    postsTimestamp: 0,
+    postsTTL: 5000, // 5 seconds
+    followCounts: new Map(),
+    followCountsTTL: 10000, // 10 seconds
+    
+    getPostsCached: async function() {
+        const now = Date.now();
+        if (this.posts && (now - this.postsTimestamp) < this.postsTTL) {
+            return this.posts;
+        }
+        this.posts = await database.getAllPostsWithComments();
+        this.postsTimestamp = now;
+        return this.posts;
+    },
+    
+    invalidatePosts: function() {
+        this.posts = null;
+        this.postsTimestamp = 0;
+    },
+    
+    getFollowCounts: async function(email) {
+        const now = Date.now();
+        const cached = this.followCounts.get(email);
+        if (cached && (now - cached.timestamp) < this.followCountsTTL) {
+            return cached.data;
+        }
+        const [followerCount, followingCount] = await Promise.all([
+            database.getFollowerCount(email),
+            database.getFollowingCount(email)
+        ]);
+        const data = { followerCount, followingCount };
+        this.followCounts.set(email, { data, timestamp: now });
+        return data;
+    },
+    
+    invalidateFollowCounts: function(email) {
+        this.followCounts.delete(email);
+    }
+};
+
+// Fire-and-forget Supabase sync (never blocks the response)
+function syncToSupabase(fn) {
+    setImmediate(async () => {
+        try {
+            await fn();
+        } catch (e) {
+            console.warn('\u26a0\ufe0f Supabase background sync failed:', e.message);
+        }
+    });
+}
 
 const app = express();
 const port = process.env.PORT || 3005;
@@ -59,7 +142,7 @@ function validatePostContent(text) {
 }
 
 // Dual Database Helper Functions
-async function writeToBoth(sqliteQuery, supabaseQuery, sqliteParams = [], supabaseParams = []) {
+async function writeToBoth(sqliteQuery, supabaseQuery, sqliteParams = [], supabaseParams = [], postData = null) {
     const results = [];
     
     try {
@@ -78,6 +161,20 @@ async function writeToBoth(sqliteQuery, supabaseQuery, sqliteParams = [], supaba
     } catch (error) {
         console.error('Supabase write error:', error);
         results.push({ database: 'supabase', success: false, error: error.message });
+        
+        // If Supabase fails and we have post data, save to pending_posts
+        if (postData) {
+            try {
+                await database.addPendingPost({
+                    ...postData,
+                    error: error.message,
+                    lastRetryAt: Date.now()
+                });
+                console.log('📝 Post saved to pending_posts for retry:', postData.id);
+            } catch (pendingError) {
+                console.error('Failed to save to pending_posts:', pendingError);
+            }
+        }
     }
 
     return results;
@@ -194,7 +291,13 @@ app.use(cors({
 app.use(generalLimiter);
 
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static(__dirname));
+
+// Serve static files with aggressive caching
+app.use(express.static(__dirname, {
+    maxAge: '1h',
+    etag: true,
+    lastModified: true
+}));
 
 // Initialize database
 console.log('DreamPost server using SQLite3 database for storage')
@@ -210,20 +313,8 @@ async function createUser(userData) {
 
 async function getPosts() {
     try {
-        const posts = await database.getAllPosts();
-        
-        // Get comments for each post
-        const postsWithComments = await Promise.all(
-            posts.map(async (post) => {
-                const comments = await database.getCommentsByPostId(post.id);
-                return {
-                    ...post,
-                    comments: comments
-                };
-            })
-        );
-        
-        return postsWithComments;
+        // Use server cache + batch query (eliminates N+1)
+        return await serverCache.getPostsCached();
     } catch (error) {
         throw error;
     }
@@ -271,16 +362,17 @@ app.get('/api/users', async (req, res) => {
 });
 
 app.post('/api/signup', authLimiter, async (req, res) => {
-    const { name, email, password } = req.body;
+    const { name, email, password, phone } = req.body;
     
     // Validate required fields
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !phone) {
         return res.status(400).json({ error: 'Missing signup fields.' });
     }
     
     // Validate and sanitize inputs
     const sanitizedName = sanitizeInput(name);
     const sanitizedEmail = sanitizeInput(email).toLowerCase();
+    const sanitizedPhone = sanitizeInput(phone);
     
     if (!validateName(sanitizedName)) {
         return res.status(400).json({ error: 'Name must be between 2 and 50 characters.' });
@@ -305,9 +397,9 @@ app.post('/api/signup', authLimiter, async (req, res) => {
         const userId = Date.now().toString();
         
         // Dual-write user to both databases
-        const sqliteQuery = 'INSERT INTO users (id, name, email, password, salt, joined_at, badge_share_count) VALUES (?, ?, ?, ?, ?, ?, ?)';
-        const supabaseQuery = 'INSERT INTO users (id, name, email, password, salt, joined_at, badge_share_count) VALUES ($1, $2, $3, $4, $5, $6, $7)';
-        const params = [userId, sanitizedName, sanitizedEmail, hash, salt, Date.now(), 0];
+        const sqliteQuery = 'INSERT INTO users (id, name, email, password, salt, joinedAt, badgeShareCount, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+        const supabaseQuery = 'INSERT INTO users (id, name, email, password, salt, joinedAt, badgeShareCount, phone) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)';
+        const params = [userId, sanitizedName, sanitizedEmail, hash, salt, Date.now(), 0, sanitizedPhone];
         
         const results = await writeToBoth(sqliteQuery, supabaseQuery, params, params);
         
@@ -322,6 +414,7 @@ app.post('/api/signup', authLimiter, async (req, res) => {
             salt,
             joinedAt: Date.now(),
             badgeShareCount: 0,
+            phone: sanitizedPhone,
         };
         
         // Remove sensitive data from response
@@ -329,6 +422,63 @@ app.post('/api/signup', authLimiter, async (req, res) => {
         res.json(safeUser);
     } catch (error) {
         res.status(500).json({ error: 'Failed to create user' });
+    }
+});
+
+// Update user name endpoint
+app.post('/api/update-name', async (req, res) => {
+    const { email, name } = req.body;
+    console.log('👤 Updating user name:', { email, name });
+    
+    if (!email || !name) {
+        return res.status(400).json({ error: 'Email and name are required' });
+    }
+    
+    try {
+        await database.updateUserName(email, name);
+        console.log('✅ User name updated successfully');
+        res.json({ success: true, message: 'User name updated successfully' });
+    } catch (error) {
+        console.error('❌ Error updating user name:', error);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// Update profile image endpoint
+app.post('/api/update-profile-image', async (req, res) => {
+    const { email, profileImage } = req.body;
+    console.log('📷 Updating profile image for:', email);
+    
+    if (!email || !profileImage) {
+        return res.status(400).json({ error: 'Email and profile image are required' });
+    }
+    
+    try {
+        await database.updateUserProfileImage(email, profileImage);
+        console.log('✅ Profile image updated successfully');
+        res.json({ success: true, message: 'Profile image updated successfully' });
+    } catch (error) {
+        console.error('❌ Error updating profile image:', error);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// Update cover image endpoint
+app.post('/api/update-cover-image', async (req, res) => {
+    const { email, coverImage } = req.body;
+    console.log('🖼️ Updating cover image for:', email);
+    
+    if (!email || !coverImage) {
+        return res.status(400).json({ error: 'Email and cover image are required' });
+    }
+    
+    try {
+        await database.updateUserCoverImage(email, coverImage);
+        console.log('✅ Cover image updated successfully');
+        res.json({ success: true, message: 'Cover image updated successfully' });
+    } catch (error) {
+        console.error('❌ Error updating cover image:', error);
+        res.status(500).json({ error: 'Database error' });
     }
 });
 
@@ -389,11 +539,17 @@ app.get('/api/posts', async (req, res) => {
         const posts = await getPosts();
         
         // Process posts to match expected format
-        const processedPosts = posts.map(post => ({
+        let processedPosts = posts.map(post => ({
             ...post,
             likedBy: post.likedBy || [],
             public: Boolean(post.public)
         }));
+        
+        // Filter by author if query parameter provided
+        const authorEmail = req.query.author;
+        if (authorEmail) {
+            processedPosts = processedPosts.filter(post => post.authorEmail === authorEmail.toLowerCase());
+        }
         
         res.json(processedPosts);
     } catch (error) {
@@ -450,7 +606,10 @@ app.post('/api/posts', async (req, res) => {
         public: !!isPublic,
         createdAt: Date.now(),
         imageUrl: imageUrl || image || null,
-        videoUrl: null
+        videoUrl: null,
+        likes: 0,
+        likedBy: [],
+        comments: []
     };
     
     try {
@@ -483,15 +642,31 @@ app.post('/api/posts', async (req, res) => {
             req.get('User-Agent')
         );
         
+        serverCache.invalidatePosts();
         res.json(post);
     } catch (error) {
         return res.status(500).json({ error: 'Failed to create post' });
     }
 });
 
+// Get single post with comments
+app.get('/api/posts/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const post = await database.getPostById(id);
+        if (!post) {
+            return res.status(404).json({ error: 'Post not found.' });
+        }
+        res.json(post);
+    } catch (error) {
+        console.error('Error fetching post:', error);
+        res.status(500).json({ error: 'Failed to fetch post' });
+    }
+});
+
 app.post('/api/posts/:id/comments', async (req, res) => {
     const { id } = req.params;
-    const { text, authorEmail, authorName } = req.body;
+    const { text, authorEmail, authorName, parentId } = req.body;
     
     if (!text || !authorEmail || !authorName) {
         return res.status(400).json({ error: 'Missing comment fields.' });
@@ -504,10 +679,12 @@ app.post('/api/posts/:id/comments', async (req, res) => {
             authorEmail: sanitizeInput(authorEmail).toLowerCase(),
             authorName: sanitizeInput(authorName),
             text: sanitizeInput(text),
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            parentId: parentId || null
         };
         
         await database.addComment(comment);
+        serverCache.invalidatePosts();
         res.json(comment);
     } catch (error) {
         res.status(500).json({ error: 'Failed to add comment' });
@@ -523,6 +700,7 @@ app.put('/api/posts/:id', async (req, res) => {
     
     try {
         await updatePost(id, safeChanges);
+        serverCache.invalidatePosts();
         
         // Return updated post
         const post = await database.getPostById(id);
@@ -539,18 +717,193 @@ app.put('/api/posts/:id', async (req, res) => {
 app.put('/api/users/profile-info', async (req, res) => {
     const { email, name, bio, website, location } = req.body;
     
-    if (!email || !name) {
-        return res.status(400).json({ error: 'Email and name are required' });
-    }
+if (!email || !name) {
+    return res.status(400).json({ error: 'Email and name are required' });
+}
     
-    try {
-        await database.updateUserProfile(email, { name, bio, website, location });
-        console.log(`Profile info updated for user: ${email}`, { name, bio, website, location });
-        res.json({ success: true, message: 'Profile information updated successfully' });
-    } catch (error) {
-        console.error('Error updating profile info:', error);
-        return res.status(500).json({ error: 'Failed to update profile information' });
+try {
+    // Update in SQLite (primary, fast)
+    await database.updateUserProfile(email, { name, bio, website, location });
+    
+    // Sync to Supabase (fire-and-forget)
+    syncToSupabase(() => {
+        const supabaseClient = createSupabaseClient();
+        return supabaseClient.from('users').update({ name, bio, website, location }).eq('email', email);
+    });
+        
+    res.json({ success: true, message: 'Profile updated successfully' });
+} catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+}
+});
+
+// Follow user endpoint
+app.post('/api/users/follow', async (req, res) => {
+const { followerEmail, followingEmail } = req.body;
+    
+if (!followerEmail || !followingEmail) {
+    return res.status(400).json({ error: 'Follower and following emails are required' });
+}
+    
+if (followerEmail === followingEmail) {
+    return res.status(400).json({ error: 'Cannot follow yourself' });
+}
+    
+try {
+    // Add follow relationship in SQLite (primary, fast)
+    await database.addFollow(followerEmail, followingEmail);
+    
+    // Invalidate cached counts
+    serverCache.invalidateFollowCounts(followerEmail);
+    serverCache.invalidateFollowCounts(followingEmail);
+    
+    // Get updated counts (parallel)
+    const [followerCount, followingCount] = await Promise.all([
+        database.getFollowerCount(followingEmail),
+        database.getFollowingCount(followerEmail)
+    ]);
+        
+    // Fire-and-forget Supabase sync
+    syncToSupabase(() => {
+        const supabaseClient = createSupabaseClient();
+        return supabaseClient.from('follows').insert({
+            follower_email: followerEmail,
+            following_email: followingEmail,
+            created_at: new Date().toISOString()
+        });
+    });
+        
+    res.json({ success: true, message: 'User followed successfully', followerCount, followingCount });
+} catch (error) {
+    console.error('Follow error:', error);
+    if (error.message && error.message.includes('UNIQUE constraint')) {
+        const { followerCount, followingCount } = await serverCache.getFollowCounts(followingEmail);
+        res.json({ success: true, message: 'Already following', followerCount, followingCount });
+    } else {
+        res.status(500).json({ error: 'Failed to follow user' });
     }
+}
+});
+
+// Unfollow user endpoint
+app.post('/api/users/unfollow', async (req, res) => {
+const { followerEmail, followingEmail } = req.body;
+    
+if (!followerEmail || !followingEmail) {
+    return res.status(400).json({ error: 'Follower and following emails are required' });
+}
+    
+try {
+    // Remove follow relationship in SQLite (primary, fast)
+    await database.removeFollow(followerEmail, followingEmail);
+    
+    // Invalidate cached counts
+    serverCache.invalidateFollowCounts(followerEmail);
+    serverCache.invalidateFollowCounts(followingEmail);
+    
+    // Get updated counts (parallel)
+    const [followerCount, followingCount] = await Promise.all([
+        database.getFollowerCount(followingEmail),
+        database.getFollowingCount(followerEmail)
+    ]);
+        
+    // Fire-and-forget Supabase sync
+    syncToSupabase(() => {
+        const supabaseClient = createSupabaseClient();
+        return supabaseClient.from('follows').delete().eq('follower_email', followerEmail).eq('following_email', followingEmail);
+    });
+        
+    res.json({ success: true, message: 'User unfollowed successfully', followerCount, followingCount });
+} catch (error) {
+    console.error('Unfollow error:', error);
+    res.status(500).json({ error: 'Failed to unfollow user' });
+}
+});
+
+// Check follow status endpoint
+app.get('/api/users/check-follow', async (req, res) => {
+const { follower, following } = req.query;
+    
+if (!follower || !following) {
+    return res.status(400).json({ error: 'Follower and following parameters are required' });
+}
+    
+try {
+    const isFollowing = await database.checkFollowStatus(follower, following);
+    res.json({ isFollowing });
+} catch (error) {
+    console.error('Check follow status error:', error);
+    res.status(500).json({ error: 'Failed to check follow status' });
+}
+});
+
+// Get followers count endpoint
+app.get('/api/users/followers', async (req, res) => {
+const { email } = req.query;
+    
+if (!email) {
+    return res.status(400).json({ error: 'Email parameter is required' });
+}
+    
+try {
+    const { followerCount, followingCount } = await serverCache.getFollowCounts(email);
+    res.json({ count: followerCount, followerCount, followingCount });
+} catch (error) {
+    console.error('Get followers error:', error);
+    res.status(500).json({ error: 'Failed to get follower count' });
+}
+});
+
+// Get following count endpoint
+app.get('/api/users/following', async (req, res) => {
+const { email } = req.query;
+    
+if (!email) {
+    return res.status(400).json({ error: 'Email parameter is required' });
+}
+    
+try {
+    const followingCount = await database.getFollowingCount(email);
+    res.json({ count: followingCount });
+} catch (error) {
+    console.error('Get following error:', error);
+    res.status(500).json({ error: 'Failed to get following count' });
+}
+});
+
+// Get followers list endpoint
+app.get('/api/users/followers-list', async (req, res) => {
+const { email } = req.query;
+    
+if (!email) {
+    return res.status(400).json({ error: 'Email parameter is required' });
+}
+    
+try {
+    const followers = await database.getFollowersList(email);
+    res.json({ followers });
+} catch (error) {
+    console.error('Get followers list error:', error);
+    res.status(500).json({ error: 'Failed to get followers list' });
+}
+});
+
+// Get following list endpoint
+app.get('/api/users/following-list', async (req, res) => {
+const { email } = req.query;
+    
+if (!email) {
+    return res.status(400).json({ error: 'Email parameter is required' });
+}
+    
+try {
+    const following = await database.getFollowingList(email);
+    res.json({ following });
+} catch (error) {
+    console.error('Get following list error:', error);
+    res.status(500).json({ error: 'Failed to get following list' });
+}
 });
 
 // Profile image update endpoint
@@ -901,5 +1254,5 @@ app.get('*', (req, res) => {
 
 app.listen(port, '0.0.0.0', () => {
     console.log(`DreamPost server running at http://localhost:${port}`);
-    console.log(`Access from other devices: http://YOUR_LOCAL_IP:${port}`);
+    console.log(`Access from other devices: http://192.168.43.92:${port}`);
 });

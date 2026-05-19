@@ -1,4 +1,4 @@
-const sqlite3 = require('sqlite3').verbose();
+const sqlite3 = require('sqlite3');
 const path = require('path');
 
 const dbPath = path.join(__dirname, 'dreams.db');
@@ -6,12 +6,20 @@ const dbPath = path.join(__dirname, 'dreams.db');
 class Database {
     constructor() {
         this.db = new sqlite3.Database(dbPath);
+        this._stmtCache = {};
         this.init();
     }
 
     init() {
         // Create tables if they don't exist
         this.db.serialize(() => {
+            // Performance: WAL mode for concurrent reads + writes
+            this.db.run('PRAGMA journal_mode = WAL');
+            this.db.run('PRAGMA synchronous = NORMAL');
+            this.db.run('PRAGMA cache_size = -20000');  // 20MB cache
+            this.db.run('PRAGMA mmap_size = 268435456'); // 256MB memory-mapped I/O
+            this.db.run('PRAGMA temp_store = MEMORY');
+            this.db.run('PRAGMA busy_timeout = 5000');
             // Users table
             this.db.run(`
                 CREATE TABLE IF NOT EXISTS users (
@@ -26,9 +34,14 @@ class Database {
                     coverImage TEXT,
                     bio TEXT,
                     website TEXT,
-                    location TEXT
+                    location TEXT,
+                    phone TEXT
                 )
             `);
+            // Migration: add phone to existing users tables
+            this.db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, (err) => {
+                if (err && !err.message.includes('duplicate column')) console.log('Migration: phone already exists or error:', err?.message);
+            });
 
             // Posts table
             this.db.run(`
@@ -59,10 +72,15 @@ class Database {
                     authorName TEXT NOT NULL,
                     text TEXT NOT NULL,
                     createdAt INTEGER NOT NULL,
+                    parentId TEXT,
                     FOREIGN KEY (postId) REFERENCES posts (id) ON DELETE CASCADE,
                     FOREIGN KEY (authorEmail) REFERENCES users (email)
                 )
             `);
+            // Migration: add parentId to existing comments tables
+            this.db.run(`ALTER TABLE comments ADD COLUMN parentId TEXT`, (err) => {
+                if (err && !err.message.includes('duplicate column')) console.log('Migration: parentId already exists or error:', err?.message);
+            });
 
             // Bookmarks table
             this.db.run(`
@@ -76,6 +94,78 @@ class Database {
                     UNIQUE(userEmail, postId)
                 )
             `);
+
+            // Follows table
+            this.db.run(`
+                CREATE TABLE IF NOT EXISTS follows (
+                    id TEXT PRIMARY KEY,
+                    followerEmail TEXT NOT NULL,
+                    followingEmail TEXT NOT NULL,
+                    createdAt INTEGER NOT NULL,
+                    FOREIGN KEY (followerEmail) REFERENCES users (email),
+                    FOREIGN KEY (followingEmail) REFERENCES users (email),
+                    UNIQUE(followerEmail, followingEmail)
+                )
+            `);
+
+            // Pending posts table for retry mechanism
+            this.db.run(`
+                CREATE TABLE IF NOT EXISTS pending_posts (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    mood TEXT,
+                    contentType TEXT DEFAULT 'dream',
+                    public INTEGER DEFAULT 1,
+                    authorEmail TEXT,
+                    authorName TEXT NOT NULL,
+                    imageUrl TEXT,
+                    videoUrl TEXT,
+                    createdAt INTEGER NOT NULL,
+                    retryCount INTEGER DEFAULT 0,
+                    lastRetryAt INTEGER,
+                    error TEXT
+                )
+            `);
+
+            // Performance indexes
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_posts_authorEmail ON posts(authorEmail)');
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_posts_createdAt ON posts(createdAt DESC)');
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_posts_public ON posts(public)');
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_comments_postId ON comments(postId)');
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_bookmarks_userEmail ON bookmarks(userEmail)');
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_bookmarks_postId ON bookmarks(postId)');
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_follows_followerEmail ON follows(followerEmail)');
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_follows_followingEmail ON follows(followingEmail)');
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+        });
+    }
+
+    // Batch query: get all posts with comment counts in ONE query (eliminates N+1)
+    async getAllPostsWithComments() {
+        return new Promise((resolve, reject) => {
+            this.db.all(
+                `SELECT p.*, COUNT(c.id) as commentCount
+                 FROM posts p
+                 LEFT JOIN comments c ON p.id = c.postId
+                 WHERE p.public = 1
+                 GROUP BY p.id
+                 ORDER BY p.createdAt DESC`,
+                [],
+                (err, rows) => {
+                    if (err) reject(err);
+                    else {
+                        const posts = rows.map(row => ({
+                            ...row,
+                            public: Boolean(row.public),
+                            likedBy: row.likedBy ? JSON.parse(row.likedBy) : [],
+                            comments: [],
+                            commentCount: row.commentCount || 0
+                        }));
+                        resolve(posts);
+                    }
+                }
+            );
         });
     }
 
@@ -221,14 +311,29 @@ class Database {
                         this.db.all(
                             'SELECT * FROM comments WHERE postId = ? ORDER BY createdAt DESC',
                             [postId],
-                            (commentErr, comments) => {
+                            (commentErr, rawComments) => {
                                 if (commentErr) reject(commentErr);
                                 else {
+                                    // Organize comments: parent comments with nested replies
+                                    const comments = rawComments || [];
+                                    const parents = [];
+                                    const replyMap = new Map();
+                                    comments.forEach(c => {
+                                        if (c.parentId) {
+                                            if (!replyMap.has(c.parentId)) replyMap.set(c.parentId, []);
+                                            replyMap.get(c.parentId).push(c);
+                                        } else {
+                                            parents.push(c);
+                                        }
+                                    });
+                                    parents.forEach(p => {
+                                        p.replies = replyMap.get(p.id) || [];
+                                    });
                                     resolve({
                                         ...row,
                                         public: Boolean(row.public),
                                         likedBy: row.likedBy ? JSON.parse(row.likedBy) : [],
-                                        comments: comments || []
+                                        comments: parents
                                     });
                                 }
                             }
@@ -256,13 +361,13 @@ class Database {
 
     async addComment(commentData) {
         return new Promise((resolve, reject) => {
-            const { id, postId, authorEmail, authorName, text, createdAt } = commentData;
+            const { id, postId, authorEmail, authorName, text, createdAt, parentId } = commentData;
             this.db.run(
-                'INSERT INTO comments (id, postId, authorEmail, authorName, text, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-                [id, postId, authorEmail, authorName, text, createdAt],
+                'INSERT INTO comments (id, postId, authorEmail, authorName, text, createdAt, parentId) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [id, postId, authorEmail, authorName, text, createdAt, parentId || null],
                 function(err) {
                     if (err) reject(err);
-                    else resolve({ id, postId, authorEmail, text, createdAt });
+                    else resolve({ id, postId, authorEmail, authorName, text, createdAt, parentId: parentId || null });
                 }
             );
         });
@@ -856,16 +961,238 @@ class Database {
         });
     }
 
+    // Pending posts operations
+    async addPendingPost(postData) {
+        return new Promise((resolve, reject) => {
+            const { id, title, text, mood, contentType, public: isPublic, authorEmail, authorName, imageUrl, videoUrl } = postData;
+            this.db.run(
+                'INSERT INTO pending_posts (id, title, text, mood, contentType, public, authorEmail, authorName, imageUrl, videoUrl, createdAt, retryCount, lastRetryAt, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL)',
+                [id, title, text, mood, contentType || 'dream', isPublic ? 1 : 0, authorEmail, authorName, imageUrl, videoUrl, Date.now()],
+                function(err) {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    resolve({ success: true, id });
+                }
+            );
+        });
+    }
+
+    async getPendingPosts() {
+        return new Promise((resolve, reject) => {
+            this.db.all('SELECT * FROM pending_posts ORDER BY createdAt ASC', [], (err, rows) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                resolve(rows);
+            });
+        });
+    }
+
+    async updatePendingPostRetry(postId, retryCount, nextRetryAt, error) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'UPDATE pending_posts SET retryCount = ?, lastRetryAt = ?, error = ? WHERE id = ?',
+                [retryCount, nextRetryAt, error, postId],
+                function(err) {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    resolve({ success: true });
+                }
+            );
+        });
+    }
+
+    async removePendingPost(postId) {
+        return new Promise((resolve, reject) => {
+            this.db.run('DELETE FROM pending_posts WHERE id = ?', [postId], function(err) {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                resolve({ success: true });
+            });
+        });
+    }
+
     // Generic run method for custom queries
     async run(query, params = []) {
         return new Promise((resolve, reject) => {
             this.db.run(query, params, function(err) {
                 if (err) {
                     reject(err);
-                    return;
+                } else {
+                    resolve({ lastID: this.lastID, changes: this.changes });
                 }
-                resolve({ success: true, changes: this.changes, lastID: this.lastID });
             });
+        });
+    }
+
+    // ===== FOLLOW SYSTEM FUNCTIONS =====
+    
+    // Add follow relationship
+    async addFollow(followerEmail, followingEmail) {
+        return new Promise((resolve, reject) => {
+            const followId = `${followerEmail}_${followingEmail}_${Date.now()}`;
+            this.db.run(
+                'INSERT INTO follows (id, followerEmail, followingEmail, createdAt) VALUES (?, ?, ?, ?)',
+                [followId, followerEmail, followingEmail, Date.now()],
+                function(err) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve({ id: followId });
+                    }
+                }
+            );
+        });
+    }
+
+    // Remove follow relationship
+    async removeFollow(followerEmail, followingEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'DELETE FROM follows WHERE followerEmail = ? AND followingEmail = ?',
+                [followerEmail, followingEmail],
+                function(err) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve({ deleted: this.changes });
+                    }
+                }
+            );
+        });
+    }
+
+    // Check if user is following another user
+    async checkFollowStatus(followerEmail, followingEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                'SELECT * FROM follows WHERE followerEmail = ? AND followingEmail = ?',
+                [followerEmail, followingEmail],
+                function(err, row) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(!!row);
+                    }
+                }
+            );
+        });
+    }
+
+    // Get follower count for a user
+    async getFollowerCount(userEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                'SELECT COUNT(*) as count FROM follows WHERE followingEmail = ?',
+                [userEmail],
+                function(err, row) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(row.count || 0);
+                    }
+                }
+            );
+        });
+    }
+
+    // Get following count for a user
+    async getFollowingCount(userEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                'SELECT COUNT(*) as count FROM follows WHERE followerEmail = ?',
+                [userEmail],
+                function(err, row) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(row.count || 0);
+                    }
+                }
+            );
+        });
+    }
+
+    // Get list of followers for a user
+    async getFollowersList(userEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.all(
+                `SELECT f.followerEmail, f.createdAt, u.name as followerName, u.profileImage
+                 FROM follows f
+                 LEFT JOIN users u ON f.followerEmail = u.email
+                 WHERE f.followingEmail = ?
+                 ORDER BY f.createdAt DESC`,
+                [userEmail],
+                function(err, rows) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(rows || []);
+                    }
+                }
+            );
+        });
+    }
+
+    // Get list of users that a user is following
+    async getFollowingList(userEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.all(
+                `SELECT f.followingEmail, f.createdAt, u.name as followingName, u.profileImage
+                 FROM follows f
+                 LEFT JOIN users u ON f.followingEmail = u.email
+                 WHERE f.followerEmail = ?
+                 ORDER BY f.createdAt DESC`,
+                [userEmail],
+                function(err, rows) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(rows || []);
+                    }
+                }
+            );
+        });
+    }
+
+    async updateUserProfileImage(email, profileImage) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'UPDATE users SET profile_image = ? WHERE email = ?',
+                [profileImage, email],
+                function(err) {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    console.log(`✅ Updated profile image for ${email}`);
+                    resolve({ success: true, changes: this.changes });
+                }
+            );
+        });
+    }
+
+    async updateUserCoverImage(email, coverImage) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'UPDATE users SET cover_image = ? WHERE email = ?',
+                [coverImage, email],
+                function(err) {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    console.log(`✅ Updated cover image for ${email}`);
+                    resolve({ success: true, changes: this.changes });
+                }
+            );
         });
     }
 

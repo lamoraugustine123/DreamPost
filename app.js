@@ -1,9 +1,160 @@
 // API configuration
 const API_URL = 'http://localhost:3005/api';
 
+// ===== OFFLINE QUEUE SYSTEM =====
+const offlineQueue = {
+    STORAGE_KEY: 'dreampost_offline_queue',
+    
+    getQueue() {
+        try {
+            return JSON.parse(localStorage.getItem(this.STORAGE_KEY)) || [];
+        } catch { return []; }
+    },
+    
+    saveQueue(queue) {
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(queue));
+    },
+    
+    add(action) {
+        const queue = this.getQueue();
+        queue.push({ ...action, id: Date.now().toString(), timestamp: Date.now() });
+        this.saveQueue(queue);
+        this.updateBadge();
+        console.log(`📥 Queued offline action: ${action.type}`, action);
+    },
+    
+    remove(id) {
+        const queue = this.getQueue().filter(item => item.id !== id);
+        this.saveQueue(queue);
+        this.updateBadge();
+    },
+    
+    clear() {
+        localStorage.removeItem(this.STORAGE_KEY);
+        this.updateBadge();
+    },
+    
+    get length() {
+        return this.getQueue().length;
+    },
+    
+    updateBadge() {
+        const badge = document.getElementById('offlineQueueBadge');
+        const count = this.length;
+        if (badge) {
+            badge.textContent = count;
+            badge.style.display = count > 0 ? 'flex' : 'none';
+        }
+    },
+    
+    async syncAll() {
+        const queue = this.getQueue();
+        if (queue.length === 0) return;
+        
+        console.log(`🔄 Syncing ${queue.length} offline actions...`);
+        showToast(`Syncing ${queue.length} offline action${queue.length > 1 ? 's' : ''}...`);
+        
+        let synced = 0;
+        let failed = 0;
+        
+        for (const action of queue) {
+            try {
+                await this.executeAction(action);
+                this.remove(action.id);
+                synced++;
+            } catch (error) {
+                console.error(`❌ Failed to sync action ${action.type}:`, error);
+                failed++;
+            }
+        }
+        
+        if (synced > 0) {
+            dataCache.invalidateCache();
+            showToast(`✅ Synced ${synced} action${synced > 1 ? 's' : ''}${failed > 0 ? ` (${failed} failed)` : ''}`);
+            // Refresh feed to show synced data
+            if (typeof renderFeed === 'function') renderFeed();
+        }
+    },
+    
+    async executeAction(action) {
+        const { type, payload } = action;
+        let response;
+        
+        switch (type) {
+            case 'post':
+                response = await fetch(`${API_URL}/posts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                break;
+            case 'comment':
+                response = await fetch(`${API_URL}/posts/${payload.postId}/comments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                break;
+            case 'like':
+                response = await fetch(`${API_URL}/posts/${payload.postId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload.changes)
+                });
+                break;
+            case 'follow':
+                response = await fetch(`${API_URL}/users/${payload.action}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload.data)
+                });
+                break;
+            default:
+                throw new Error(`Unknown action type: ${type}`);
+        }
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response;
+    }
+};
+
+// Network status tracking
+let isOnline = navigator.onLine;
+
+let offlineHideTimer = null;
+
+function updateOnlineStatus() {
+    const wasOffline = !isOnline;
+    isOnline = navigator.onLine;
+    
+    const indicator = document.getElementById('offlineIndicator');
+    if (indicator) {
+        if (isOnline) {
+            indicator.classList.remove('show');
+            if (offlineHideTimer) { clearTimeout(offlineHideTimer); offlineHideTimer = null; }
+        } else {
+            indicator.classList.add('show');
+            // Auto-hide after 60 seconds
+            if (offlineHideTimer) clearTimeout(offlineHideTimer);
+            offlineHideTimer = setTimeout(() => {
+                indicator.classList.remove('show');
+            }, 60000);
+        }
+    }
+    
+    // Auto-sync when coming back online
+    if (isOnline && wasOffline) {
+        console.log('🌐 Back online! Syncing queued actions...');
+        setTimeout(() => offlineQueue.syncAll(), 1500);
+    }
+}
+
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+
 // Resilient retry for background API calls (optimistic UI pattern)
-// Retries up to maxRetries times with exponential backoff, then calls onFail to revert UI
-async function resilientSync(apiFn, { maxRetries = 3, baseDelay = 1000, onFail = null } = {}) {
+// Retries up to maxRetries times with exponential backoff, then queues for offline sync
+async function resilientSync(apiFn, { maxRetries = 3, baseDelay = 1000, onFail = null, offlineAction = null } = {}) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             const res = await apiFn();
@@ -15,8 +166,17 @@ async function resilientSync(apiFn, { maxRetries = 3, baseDelay = 1000, onFail =
             if (attempt < maxRetries) {
                 await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt - 1)));
             } else {
-                console.error('❌ All sync retries exhausted, reverting UI');
-                if (onFail) onFail();
+                // Queue for offline sync instead of reverting
+                if (offlineAction && !isOnline) {
+                    offlineQueue.add(offlineAction);
+                    showToast('📥 Saved offline. Will sync when back online.');
+                } else if (offlineAction) {
+                    offlineQueue.add(offlineAction);
+                    showToast('📥 Queued for retry.');
+                } else {
+                    console.error('❌ All sync retries exhausted, reverting UI');
+                    if (onFail) onFail();
+                }
             }
         }
     }
@@ -230,6 +390,7 @@ const elements = {
     loginPassword: document.getElementById('loginPassword'),
     signupName: document.getElementById('signupName'),
     signupEmail: document.getElementById('signupEmail'),
+    signupPhone: document.getElementById('signupPhone'),
     signupPassword: document.getElementById('signupPassword'),
     loginBtn: document.getElementById('loginBtn'),
     signupBtn: document.getElementById('signupBtn'),
@@ -572,14 +733,14 @@ async function loginUser(email, password) {
     }
 }
 
-async function signupUser(name, email, password) {
+async function signupUser(name, email, password, phone) {
     try {
         const response = await fetch(`${API_URL}/signup`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ name, email, password }),
+            body: JSON.stringify({ name, email, password, phone }),
         });
         
         if (!response.ok) {
@@ -620,6 +781,25 @@ async function getPosts() {
     }
 }
 
+// Fetch a single post with its comments
+async function getPostById(postId) {
+    try {
+        const response = await fetch(`${API_URL}/posts/${postId}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const post = await response.json();
+        return {
+            ...post,
+            createdAt: new Date(post.createdAt),
+            likes: post.likes || 0,
+            likedBy: post.likedBy || [],
+            comments: post.comments || []
+        };
+    } catch (error) {
+        console.error('❌ Error fetching post by id:', error);
+        return null;
+    }
+}
+
 async function savePosts(posts) {
     try {
         // No longer using localStorage - all data is managed by the server database
@@ -650,6 +830,12 @@ async function createPost(post) {
         return await response.json();
     } catch (error) {
         console.error('Create post error:', error);
+        // Queue post for offline sync
+        if (!navigator.onLine || error.message.includes('Failed to fetch')) {
+            offlineQueue.add({ type: 'post', payload: post });
+            showToast('📥 Post saved offline. Will sync when back online.');
+            return { id: 'offline-' + Date.now(), ...post, offline: true };
+        }
         throw error;
     }
 }
@@ -704,23 +890,28 @@ function checkPasswordStrength(password) {
 function validateSignupForm() {
     const name = elements.signupName.value.trim();
     const email = elements.signupEmail.value.trim();
+    const phone = elements.signupPhone.value.trim();
     const password = elements.signupPassword.value;
     const confirmPassword = elements.signupConfirmPassword.value;
-    
+
     let errors = [];
-    
+
     if (name.length < 2 || name.length > 50) {
         errors.push('Name must be between 2 and 50 characters');
     }
-    
+
     if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
         errors.push('Invalid email format');
     }
-    
+
+    if (!phone || phone.length < 10) {
+        errors.push('Phone number is required and must be at least 10 digits');
+    }
+
     if (password.length < 12) {
         errors.push('Password must be at least 12 characters long');
     }
-    
+
     if (!/[A-Z]/.test(password)) {
         errors.push('Password must contain at least one uppercase letter');
     }
@@ -1143,11 +1334,21 @@ async function init() {
     initModalOverlay();
     renderWhatsAppStories();
     
+    // Initialize offline system
+    updateOnlineStatus();
+    offlineQueue.updateBadge();
+    
     const activeEmail = storage.getSession();
     if (activeEmail) {
         currentUser = await getUser(activeEmail);
     }
     await renderApp();
+    
+    // Sync any pending offline actions if online
+    if (navigator.onLine && offlineQueue.length > 0) {
+        setTimeout(() => offlineQueue.syncAll(), 3000);
+    }
+    
     setTimeout(() => {
         if (elements.splashScreen) elements.splashScreen.classList.add('hidden');
     }, 2000);
@@ -1241,6 +1442,7 @@ async function handleSignup() {
     
     const name = elements.signupName.value.trim();
     const email = elements.signupEmail.value.trim();
+    const phone = elements.signupPhone.value.trim();
     const password = elements.signupPassword.value.trim();
     
     // Show loading state
@@ -1248,13 +1450,14 @@ async function handleSignup() {
     elements.signupBtn.disabled = true;
     
     try {
-        currentUser = await signupUser(name, email, password);
+        currentUser = await signupUser(name, email, password, phone);
         storage.setSession(currentUser.email);
         showToast('Account created successfully! Welcome to DreamPost!');
         
         // Clear form
         elements.signupName.value = '';
         elements.signupEmail.value = '';
+        elements.signupPhone.value = '';
         elements.signupPassword.value = '';
         elements.signupConfirmPassword.value = '';
         elements.signupError.classList.add('hidden');
@@ -3485,18 +3688,32 @@ async function toggleComments(postId) {
         const overlay = document.getElementById('modalOverlay');
         if (overlay) overlay.classList.add('active');
         
-        // Fetch post data in background
-        const posts = await getPosts();
-        const post = posts.find(p => p.id === postId);
+        // Fetch single post with real comments
+        const post = await getPostById(postId);
         
         if (!post) {
             showToast('Post not found');
-            modal.classList.remove('active');
+            document.getElementById('commentsList').innerHTML = '<p style="text-align:center;color:rgba(255,255,255,0.5);padding:20px;">Failed to load comments.</p>';
             return;
         }
         
         // Update with real comments
         await updateCommentsModal(postId, post);
+        
+        // Sync comment count to feed card
+        const realCount = post.comments?.length || 0;
+        const feedActionCount = document.querySelector(`[data-post-id="${postId}"] .comment-btn .action-count`);
+        if (feedActionCount) {
+            feedActionCount.textContent = realCount;
+        }
+        // Also update cached post so count persists
+        if (dataCache.posts) {
+            const cachedPost = dataCache.posts.find(p => p.id === postId);
+            if (cachedPost) {
+                cachedPost.comments = post.comments || [];
+            }
+        }
+        
         document.getElementById('commentInput').focus();
         
     } catch (error) {
@@ -3516,14 +3733,21 @@ async function submitComment(postId) {
     const text = commentInput.value.trim();
     if (!text) return showToast('Write a kind encouragement message.');
     
-    // --- INSTANT UI UPDATE ---
+    // --- INSTANT UI UPDATE (TikTok style) ---
+    const initials = (currentUser.name || 'U').slice(0, 2).toUpperCase();
     const commentHtml = `
-        <div class="comment">
-            <div class="comment-header">
-                <strong>${currentUser.name}</strong>
-                <span class="comment-time">Just now</span>
+        <div class="comment-item" style="animation: fadeIn 0.3s ease;">
+            <div class="comment-avatar">${initials}</div>
+            <div class="comment-body">
+                <div class="comment-author">${currentUser.name}</div>
+                <div class="comment-text">${text}</div>
+                <div class="comment-meta">
+                    <span class="comment-time">Just now</span>
+                </div>
             </div>
-            <div class="comment-text">${text}</div>
+            <div class="comment-heart">
+                <button>♡</button>
+            </div>
         </div>
     `;
     const commentsList = document.querySelector(`[data-post-id="${postId}"] .comments-list`);
@@ -3542,25 +3766,39 @@ async function submitComment(postId) {
     
     // --- BACKGROUND API CALL WITH RETRY ---
     const prevCount = actionCount ? parseInt(actionCount.textContent) || 0 : 0;
-    resilientSync(
-        () => fetch(`${API_URL}/posts/${postId}/comments`, {
+    try {
+        const response = await fetch(`${API_URL}/posts/${postId}/comments`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, authorEmail: currentUser.email, authorName: currentUser.name })
-        }),
-        {
-            onFail: () => {
-                // Revert: remove the optimistic comment
-                if (commentsList && commentsList.firstElementChild) {
-                    commentsList.firstElementChild.remove();
-                }
-                if (actionCount) {
-                    actionCount.textContent = Math.max(prevCount - 1, 0);
-                }
-                showToast('Comment failed to save. Reverted.');
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const newComment = await response.json();
+        
+        // Update cache: add comment to the post
+        if (dataCache.posts) {
+            const cachedPost = dataCache.posts.find(p => p.id === postId);
+            if (cachedPost) {
+                cachedPost.comments = cachedPost.comments || [];
+                cachedPost.comments.unshift(newComment);
             }
         }
-    );
+        if (dataCache.userPosts) {
+            const cachedPost = dataCache.userPosts.find(p => p.id === postId);
+            if (cachedPost) {
+                cachedPost.comments = cachedPost.comments || [];
+                cachedPost.comments.unshift(newComment);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Comment save failed:', error);
+        // Queue for offline sync instead of reverting
+        offlineQueue.add({
+            type: 'comment',
+            payload: { postId, text, authorEmail: currentUser.email, authorName: currentUser.name }
+        });
+        showToast('📥 Comment saved offline. Will sync when back online.');
+    }
 }
 
 // Optimized: Update comment count immediately in UI
@@ -3581,17 +3819,18 @@ function copyPostLink(postId) {
 
 function createCommentsModal() {
     const modalHtml = `
-        <div id="commentsModal" class="modal-popup">
+        <div id="commentsModal" class="modal-popup tiktok-comments">
             <div class="modal-header">
-                <h3>Comments</h3>
+                <span class="tiktok-pill-handle"></span>
+                <h3 id="commentsCount">Comments</h3>
                 <button class="modal-close-btn" onclick="closeCommentsModal()">✕</button>
             </div>
             <div class="modal-content">
                 <div id="commentsList"></div>
-                <div class="comment-input-section">
-                    <textarea id="commentInput" placeholder="Write a comment..." rows="3"></textarea>
-                    <button id="submitCommentBtn" class="primary-btn">Post Comment</button>
-                </div>
+            </div>
+            <div class="comment-input-section">
+                <textarea id="commentInput" placeholder="Add comment..." rows="1"></textarea>
+                <button id="submitCommentBtn" class="primary-btn">Post</button>
             </div>
         </div>
     `;
@@ -3625,33 +3864,54 @@ async function openCommentsModal(postId, post) {
 
 async function updateCommentsModal(postId, post) {
     const commentsList = document.getElementById('commentsList');
+    const commentsCount = document.getElementById('commentsCount');
     const comments = post.comments || [];
     
+    // Update header count
+    if (commentsCount) {
+        commentsCount.textContent = comments.length > 0 ? `${comments.length} comment${comments.length > 1 ? 's' : ''}` : 'Comments';
+    }
+    
     commentsList.innerHTML = comments.length > 0 ? comments.map(comment => {
+        const authorName = comment.userName || comment.authorName || 'Anonymous';
+        const initials = authorName.slice(0, 2).toUpperCase();
         const replies = comment.replies || [];
         const repliesHtml = replies.length > 0 ? `
             <div class="comment-replies">
-                ${replies.map(reply => `
+                ${replies.map(reply => {
+                    const replyAuthor = reply.userName || reply.authorName || 'Anonymous';
+                    const replyInitials = replyAuthor.slice(0, 2).toUpperCase();
+                    return `
                     <div class="reply-item">
-                        <div class="reply-author">${reply.userName || reply.authorName || 'Anonymous'}</div>
-                        <div class="reply-text">${reply.text}</div>
-                        <div class="reply-time">${formatTime(reply.createdAt)}</div>
-                    </div>
-                `).join('')}
+                        <div class="comment-avatar" style="width:28px;height:28px;font-size:0.65rem;">${replyInitials}</div>
+                        <div class="comment-body">
+                            <div class="reply-author">${replyAuthor}</div>
+                            <div class="reply-text">${reply.text}</div>
+                            <div class="reply-time">${formatTime(reply.createdAt)}</div>
+                        </div>
+                    </div>`;
+                }).join('')}
             </div>
         ` : '';
         
         return `
             <div class="comment-item" data-comment-id="${comment.id}">
-                <div class="comment-author">${comment.userName || comment.authorName || 'Anonymous'}</div>
-                <div class="comment-text">${comment.text}</div>
-                <div class="comment-time">${formatTime(comment.createdAt)}</div>
-                <button class="comment-like-btn" onclick="likeComment('${postId}', '${comment.id}')">👍</button>
-                <button class="comment-reply-btn" onclick="replyToComment('${postId}', '${comment.id}')">Reply</button>
-                ${repliesHtml}
+                <div class="comment-avatar">${initials}</div>
+                <div class="comment-body">
+                    <div class="comment-author">${authorName}</div>
+                    <div class="comment-text">${comment.text}</div>
+                    <div class="comment-meta">
+                        <span class="comment-time">${formatTime(comment.createdAt)}</span>
+                        <button class="comment-reply-btn" onclick="replyToComment('${postId}', '${comment.id}')">Reply</button>
+                    </div>
+                    ${repliesHtml}
+                </div>
+                <div class="comment-heart">
+                    <button onclick="likeComment('${postId}', '${comment.id}')">♡</button>
+                </div>
             </div>
         `;
-    }).join('') : '<p class="no-comments">No comments yet. Be the first to comment!</p>';
+    }).join('') : '<p class="no-comments">No comments yet. Be the first to share your thoughts!</p>';
 }
 
 async function replyToComment(postId, commentId) {
@@ -3683,8 +3943,13 @@ async function replyToComment(postId, commentId) {
         </div>
     `;
     
-    // Add reply form after the comment
-    commentItem.appendChild(replyForm);
+    // Add reply form inside comment-body to prevent flex layout break
+    const commentBody = commentItem.querySelector('.comment-body');
+    if (commentBody) {
+        commentBody.appendChild(replyForm);
+    } else {
+        commentItem.appendChild(replyForm);
+    }
     
     // Focus on the reply input
     const replyInput = replyForm.querySelector('.reply-input');
@@ -3716,58 +3981,61 @@ async function submitReply(postId, commentId) {
         return;
     }
     
+    // --- INSTANT UI UPDATE ---
+    const replyHtml = `
+        <div class="reply-item" style="animation: fadeIn 0.3s ease;">
+            <div class="reply-author">${currentUser.name}</div>
+            <div class="reply-text">${replyText}</div>
+            <div class="reply-time">Just now</div>
+        </div>
+    `;
+    // Insert reply into the comment's replies section (create if needed)
+    let repliesContainer = commentItem.querySelector('.comment-replies');
+    if (!repliesContainer) {
+        repliesContainer = document.createElement('div');
+        repliesContainer.className = 'comment-replies';
+        commentItem.appendChild(repliesContainer);
+    }
+    repliesContainer.insertAdjacentHTML('afterbegin', replyHtml);
+    
+    // Remove reply form
+    const replyForm = commentItem.querySelector('.reply-form');
+    if (replyForm) replyForm.remove();
+    
+    showToast('Reply posted!');
+    
+    // --- BACKGROUND API CALL ---
     try {
-        // Get current post data
-        const posts = await getPosts();
-        const post = posts.find(p => p.id === postId);
-        if (!post) {
-            showToast('Post not found');
-            return;
+        const response = await fetch(`${API_URL}/posts/${postId}/comments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text: replyText,
+                authorEmail: currentUser.email,
+                authorName: currentUser.name,
+                parentId: commentId
+            })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const newReply = await response.json();
+        
+        // Update cache
+        if (dataCache.posts) {
+            const cachedPost = dataCache.posts.find(p => p.id === postId);
+            if (cachedPost) {
+                const parent = (cachedPost.comments || []).find(c => c.id === commentId);
+                if (parent) {
+                    parent.replies = parent.replies || [];
+                    parent.replies.unshift(newReply);
+                }
+            }
         }
-        
-        // Find the parent comment
-        const parentComment = post.comments.find(c => c.id === commentId);
-        if (!parentComment) {
-            showToast('Comment not found');
-            return;
-        }
-        
-        // Initialize replies array if it doesn't exist
-        if (!parentComment.replies) {
-            parentComment.replies = [];
-        }
-        
-        // Create new reply
-        const newReply = {
-            id: Date.now().toString(),
-            text: replyText,
-            userName: currentUser.name,
-            authorName: currentUser.name,
-            authorEmail: currentUser.email,
-            createdAt: Date.now(),
-            parentId: commentId
-        };
-        
-        // Add reply to parent comment
-        parentComment.replies.unshift(newReply);
-        
-        // Update post in database
-        await updatePost(postId, { comments: post.comments });
-        
-        // Remove reply form
-        const replyForm = commentItem.querySelector('.reply-form');
-        if (replyForm) {
-            replyForm.remove();
-        }
-        
-        // Update comments modal to show new reply
-        await updateCommentsModal(postId, post);
-        
-        showToast('Reply added successfully!');
-        
     } catch (error) {
-        console.error('Error submitting reply:', error);
-        showToast('Failed to add reply');
+        console.error('❌ Reply save failed:', error);
+        // Revert optimistic reply
+        const firstReply = repliesContainer.querySelector('.reply-item');
+        if (firstReply) firstReply.remove();
+        showToast('Reply failed to save. Reverted.');
     }
 }
 
@@ -4370,21 +4638,25 @@ async function submitCommentFromModal() {
     }
     
     // --- INSTANT UI UPDATE ---
-    // Inject comment into modal immediately
+    // Inject comment into modal immediately (TikTok style)
     const commentsList = document.getElementById('commentsList');
     if (commentsList) {
         const noComments = commentsList.querySelector('.no-comments');
         if (noComments) noComments.remove();
         
+        const initials = (currentUser.name || 'U').slice(0, 2).toUpperCase();
         const commentHtml = `
             <div class="comment-item" style="animation: fadeIn 0.3s ease;">
-                <div class="comment-avatar" style="background: linear-gradient(135deg, #00d4ff, #7b2ff7); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 14px; flex-shrink: 0;">
-                    ${(currentUser.name || 'U').slice(0, 1).toUpperCase()}
-                </div>
-                <div class="comment-content">
+                <div class="comment-avatar">${initials}</div>
+                <div class="comment-body">
                     <div class="comment-author">${currentUser.name}</div>
                     <div class="comment-text">${text}</div>
-                    <div class="comment-time">Just now</div>
+                    <div class="comment-meta">
+                        <span class="comment-time">Just now</span>
+                    </div>
+                </div>
+                <div class="comment-heart">
+                    <button>♡</button>
                 </div>
             </div>
         `;
@@ -4403,25 +4675,40 @@ async function submitCommentFromModal() {
     
     // --- BACKGROUND API CALL WITH RETRY ---
     const prevCount = actionCount ? parseInt(actionCount.textContent) || 0 : 0;
-    resilientSync(
-        () => fetch(`/api/posts/${postId}/comments`, {
+    try {
+        const response = await fetch(`${API_URL}/posts/${postId}/comments`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, authorEmail: currentUser.email, authorName: currentUser.name })
-        }),
-        {
-            onFail: () => {
-                // Revert: remove the optimistic comment from modal
-                if (commentsList && commentsList.firstElementChild) {
-                    commentsList.firstElementChild.remove();
-                }
-                if (actionCount) {
-                    actionCount.textContent = Math.max(prevCount - 1, 0);
-                }
-                showToast('Comment failed to save. Reverted.');
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const newComment = await response.json();
+        
+        // Update cache: add comment to the post
+        if (dataCache.posts) {
+            const cachedPost = dataCache.posts.find(p => p.id === postId);
+            if (cachedPost) {
+                cachedPost.comments = cachedPost.comments || [];
+                cachedPost.comments.unshift(newComment);
             }
         }
-    );
+        // Also update userPosts cache if present
+        if (dataCache.userPosts) {
+            const cachedPost = dataCache.userPosts.find(p => p.id === postId);
+            if (cachedPost) {
+                cachedPost.comments = cachedPost.comments || [];
+                cachedPost.comments.unshift(newComment);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Comment save failed:', error);
+        // Queue for offline sync instead of reverting
+        offlineQueue.add({
+            type: 'comment',
+            payload: { postId, text, authorEmail: currentUser.email, authorName: currentUser.name }
+        });
+        showToast('📥 Comment saved offline. Will sync when back online.');
+    }
 }
 
 function closeCommentsModal() {

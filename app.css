@@ -2,6 +2,49 @@
     box-sizing: border-box;
 }
 
+/* Offline Status Indicator */
+.offline-indicator {
+    position: fixed;
+    top: -50px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1a1a1a;
+    border: 1px solid rgba(255, 200, 0, 0.3);
+    color: #ffc800;
+    padding: 10px 20px;
+    border-radius: 25px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 99999;
+    transition: top 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.offline-indicator.show {
+    top: 16px;
+}
+
+.offline-icon {
+    font-size: 1rem;
+}
+
+.offline-badge {
+    background: #fe2c55;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+}
+
 :root {
     /* Hybrid Social Media Theme Variables */
     --facebook: #1877f2;
@@ -4481,94 +4524,274 @@ textarea {
     font-size: 0.95rem;
 }
 
+/* ===== TikTok-Style Comments Section ===== */
+
+/* TikTok Comments Modal Override */
+.modal-popup.tiktok-comments {
+    top: auto;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%) translateY(100%);
+    border-radius: 16px 16px 0 0;
+    max-height: 70vh;
+    width: 100%;
+    max-width: 500px;
+    background: #1e1e1e;
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modal-popup.tiktok-comments.active {
+    transform: translateX(-50%) translateY(0);
+}
+
+.modal-popup.tiktok-comments .modal-header {
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 16px 14px;
+    background: transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    position: relative;
+}
+
+.tiktok-pill-handle {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.2);
+    margin-bottom: 10px;
+}
+
+.modal-popup.tiktok-comments .modal-header h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #e1e1e1;
+}
+
+.modal-popup.tiktok-comments .modal-close-btn {
+    position: absolute;
+    right: 16px;
+    top: 16px;
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+}
+
+.modal-popup.tiktok-comments .modal-content {
+    padding: 0;
+    overflow-y: auto;
+}
+
 .comments-panel {
     margin-top: 20px;
-    padding: 20px;
-    border-radius: 24px;
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    backdrop-filter: blur(20px);
-    max-height: 300px;
+    padding: 0;
+    border-radius: 16px 16px 0 0;
+    background: #161616;
+    border: none;
+    max-height: 400px;
     overflow-y: auto;
 }
 
 .comment-item {
-    padding: 16px 18px;
-    border-radius: 20px;
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    backdrop-filter: blur(10px);
-    margin-bottom: 14px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 0;
+    background: transparent;
+    border: none;
+    backdrop-filter: none;
+    margin-bottom: 0;
+    transition: background 0.2s ease;
+}
+
+.comment-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.comment-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #fe2c55, #25f4ee);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.comment-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.comment-author {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 4px;
+}
+
+.comment-text {
+    font-size: 0.9rem;
+    color: #e1e1e1;
+    line-height: 1.45;
+    margin-bottom: 6px;
+    word-wrap: break-word;
 }
 
 .comment-meta {
     display: flex;
-    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 0;
+}
+
+.comment-time {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.comment-actions {
+    display: flex;
+    align-items: center;
     gap: 12px;
-    font-size: 0.88rem;
-    color: #a0a0a0;
-    margin-bottom: 10px;
 }
 
-.comment-item p {
-    margin: 0;
-    background: linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
+.comment-like-btn,
+.comment-reply-btn {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.comment-like-btn:hover {
+    color: #fe2c55;
+}
+
+.comment-reply-btn:hover {
+    color: #fff;
+}
+
+.comment-like-btn.liked {
+    color: #fe2c55;
+}
+
+.comment-heart {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.comment-heart button {
+    background: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px;
+    transition: transform 0.2s ease;
+}
+
+.comment-heart button:hover {
+    transform: scale(1.3);
+}
+
+.comment-heart span {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* Comment Input Section - TikTok style bottom bar */
+.comment-input-section {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: #1a1a1a;
+}
+
+.comment-input-section textarea {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 10px 16px;
+    color: #fff;
+    font-size: 0.9rem;
+    font-family: inherit;
+    resize: none;
+    min-height: 38px;
+    max-height: 100px;
+    line-height: 1.4;
+    overflow-y: auto;
+}
+
+.comment-input-section textarea:focus {
+    outline: none;
+    border-color: rgba(254, 44, 85, 0.5);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.comment-input-section textarea::placeholder {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.comment-input-section .primary-btn {
+    background: #fe2c55;
+    color: #fff;
+    border: none;
+    border-radius: 20px;
+    padding: 8px 18px;
+    font-size: 0.85rem;
     font-weight: 600;
-    line-height: 1.6;
-    animation: rainbow-shift 3s ease-in-out infinite;
-    text-shadow: 0 0 5px rgba(255,255,255,0.2);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
 }
 
-/* Fallback for browsers that don't support background-clip */
-@supports not (background-clip: text) {
-    .comment-item p {
-        background: none;
-        color: #ff00ff;
-        animation: rainbow-colors 3s ease-in-out infinite;
-    }
+.comment-input-section .primary-btn:hover {
+    background: #e6284d;
+    transform: scale(1.02);
 }
 
-@keyframes rainbow-shift {
-    0% { filter: hue-rotate(0deg) brightness(1.1); }
-    25% { filter: hue-rotate(90deg) brightness(1.2); }
-    50% { filter: hue-rotate(180deg) brightness(1.3); }
-    75% { filter: hue-rotate(270deg) brightness(1.2); }
-    100% { filter: hue-rotate(360deg) brightness(1.1); }
+/* No comments placeholder */
+.no-comments {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.35);
+    padding: 40px 20px;
+    font-size: 0.9rem;
 }
 
-@keyframes rainbow-colors {
-    0% { color: #ff0000; }
-    16.66% { color: #ff7f00; }
-    33.33% { color: #ffff00; }
-    50% { color: #00ff00; }
-    66.66% { color: #0000ff; }
-    83.33% { color: #4b0082; }
-    100% { color: #9400d3; }
-}
-
-@keyframes rainbow-shift {
-    0% { filter: hue-rotate(0deg); }
-    100% { filter: hue-rotate(360deg); }
-}
-
+/* Reply Form - TikTok style */
 .reply-form {
-    margin-top: 12px;
-    padding: 12px;
-    background: rgba(0, 212, 255, 0.05);
-    border: 1px solid rgba(0, 212, 255, 0.2);
+    margin-top: 8px;
+    margin-left: 0;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.03);
     border-radius: 12px;
-    animation: slideDown 0.3s ease;
+    animation: slideDown 0.2s ease;
 }
 
 @keyframes slideDown {
     from {
         opacity: 0;
-        transform: translateY(-10px);
+        transform: translateY(-8px);
     }
     to {
         opacity: 1;
@@ -4578,96 +4801,101 @@ textarea {
 
 .reply-input-container {
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: 8px;
 }
 
 .reply-input {
-width: 100%;
-padding: 8px 12px;
-border: 1px solid rgba(255, 255, 255, 0.1);
-border-radius: 8px;
-background: rgba(255, 255, 255, 0.05);
-color: #ffffff;
-font-size: 0.9rem;
-line-height: 1.4;
-resize: vertical;
-min-height: 60px;
-font-family: inherit;
+    flex: 1;
+    padding: 8px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.05);
+    color: #ffffff;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    resize: none;
+    min-height: 36px;
+    font-family: inherit;
 }
 
 .reply-input:focus {
-outline: none;
-border-color: var(--accent);
-background: rgba(255, 255, 255, 0.08);
-box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
+    outline: none;
+    border-color: rgba(254, 44, 85, 0.5);
     background: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
 }
 
 .reply-input::placeholder {
-    color: #a0a0a0;
-    font-style: italic;
+    color: rgba(255, 255, 255, 0.35);
 }
 
 .reply-actions {
     display: flex;
-    gap: 8px;
+    gap: 6px;
+    margin-top: 8px;
     justify-content: flex-end;
-    margin-top: 4px;
 }
 
 .reply-submit-btn,
 .reply-cancel-btn {
-    padding: 6px 12px;
+    padding: 6px 14px;
     border: none;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    font-weight: 500;
+    border-radius: 16px;
+    font-size: 0.8rem;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
 }
 
 .reply-submit-btn {
-    background: var(--accent);
+    background: #fe2c55;
     color: white;
 }
 
 .reply-submit-btn:hover {
-    background: var(--accent-dark);
-    transform: translateY(-1px);
+    background: #e6284d;
+    transform: scale(1.03);
 }
 
 .reply-cancel-btn {
-    background: rgba(255, 255, 255, 0.1);
-    color: #a0a0a0;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.6);
 }
 
 .reply-cancel-btn:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.12);
     color: #ffffff;
 }
 
+/* Replies - TikTok threaded style */
 .comment-replies {
-    margin-top: 12px;
-    padding-left: 20px;
-    border-left: 2px solid rgba(0, 212, 255, 0.2);
+    margin-top: 8px;
+    margin-left: 48px;
+    padding-left: 0;
+    border-left: none;
 }
 
 .reply-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
     padding: 8px 12px;
-    margin-bottom: 8px;
-    background: rgba(0, 212, 255, 0.03);
-    border: 1px solid rgba(0, 212, 255, 0.1);
-    border-radius: 8px;
+    margin-bottom: 4px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
     animation: fadeIn 0.3s ease;
 }
 
+.reply-item:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
 .reply-author {
-    font-size: 0.85rem;
+    font-size: 0.78rem;
     font-weight: 600;
-    color: var(--accent);
-    margin-bottom: 4px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 2px;
 }
 
 .reply-text {
@@ -4679,38 +4907,21 @@ box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
     color: transparent;
     font-weight: 700;
     line-height: 1.4;
-    margin-bottom: 4px;
-    animation: pure-rainbow-flow 2s linear infinite;
-    text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+    margin-bottom: 2px;
+    animation: rainbow-reply-flow 2s linear infinite;
+    text-shadow: none;
 }
 
-@keyframes pure-rainbow-flow {
-    0% { 
-        filter: hue-rotate(0deg) brightness(1.2);
-        transform: translateY(0px);
-    }
-    25% { 
-        filter: hue-rotate(90deg) brightness(1.3);
-        transform: translateY(-1px);
-    }
-    50% { 
-        filter: hue-rotate(180deg) brightness(1.4);
-        transform: translateY(0px);
-    }
-    75% { 
-        filter: hue-rotate(270deg) brightness(1.3);
-        transform: translateY(-1px);
-    }
-    100% { 
-        filter: hue-rotate(360deg) brightness(1.2);
-        transform: translateY(0px);
-    }
+@keyframes rainbow-reply-flow {
+    0% { filter: hue-rotate(0deg) brightness(1.2); }
+    50% { filter: hue-rotate(180deg) brightness(1.4); }
+    100% { filter: hue-rotate(360deg) brightness(1.2); }
 }
 
 .reply-time {
-    font-size: 0.75rem;
-    color: #808080;
-    font-style: italic;
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.35);
+    font-style: normal;
 }
 
 /* Share Modal Styles */
