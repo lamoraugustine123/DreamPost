@@ -110,7 +110,7 @@
     --gradient-facebook: linear-gradient(135deg, #1877f2, #42b883);
     --gradient-instagram: var(--instagram-gradient);
     --gradient-twitter: linear-gradient(135deg, #1da1f2, #1a91da);
-    --gradient-whatsapp: linear-gradient(135deg, #25d366, #128c7e);
+    --gradient-primary: linear-gradient(135deg, #25d366, #128c7e);
     --gradient-telegram: linear-gradient(135deg, #0088cc, #0077b3);
     --gradient-hybrid: linear-gradient(135deg, var(--facebook), var(--instagram), var(--twitter));
     
@@ -287,10 +287,14 @@ select {
 
 .stories-container {
     display: flex;
+    flex-direction: row;
     gap: var(--spacing-md);
     overflow-x: auto;
+    overflow-y: hidden;
     padding: var(--spacing-sm) 0;
     scroll-behavior: smooth;
+    width: 100%;
+    min-height: 90px;
 }
 
 .stories-container::-webkit-scrollbar {
@@ -344,7 +348,7 @@ select {
     left: 0;
     right: 0;
     height: 3px;
-    background: var(--gradient-whatsapp);
+    background: var(--gradient-primary);
     opacity: 0;
     transition: opacity var(--transition-normal);
 }
@@ -1549,7 +1553,7 @@ select {
     left: 0;
     right: 0;
     height: 3px;
-    background: var(--gradient-whatsapp);
+    background: var(--gradient-primary);
     opacity: 0;
     transition: opacity var(--transition-normal);
 }
@@ -4531,7 +4535,7 @@ textarea {
 /* ===== TikTok-Style Comments Section ===== */
 
 /* TikTok Comments Modal Override */
-.modal-popup.tiktok-comments {
+.modal-popup.comments-popup {
     top: auto;
     bottom: 0;
     left: 50%;
@@ -4545,7 +4549,7 @@ textarea {
     border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.modal-popup.tiktok-comments.active {
+.modal-popup.comments-popup.active {
     transform: translateX(-50%) translateY(0);
 }
 
@@ -7855,5 +7859,765 @@ animation: pulse 2s infinite;
     .posts-grid {
         grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)) !important;
         gap: 10px !important;
+    }
+}
+
+/* ===== STATUS UPDATES ===== */
+
+/* Stories ribbon item - with viewed/unviewed ring */
+.status-ribbon-item {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: var(--radius-lg);
+    transition: var(--transition-all);
+    width: 80px;
+}
+
+.status-ribbon-item:hover {
+    transform: translateY(-2px);
+}
+
+.status-preview-popup {
+    position: fixed;
+    z-index: 10000;
+    width: 200px;
+    height: 280px;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.status-preview-content {
+    position: relative;
+    width: 100%;
+    height: 240px;
+}
+
+.status-preview-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,0.8));
+    padding: 40px 12px 12px;
+    color: white;
+}
+
+.status-preview-name {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.status-preview-time {
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.status-ring-container {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.status-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+}
+
+.status-ring.unviewed {
+    border: 3px solid transparent;
+    background: var(--gradient-whatsapp) border-box;
+    mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+    -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: statusRingPulse 2s ease-in-out infinite;
+}
+
+@keyframes statusRingPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.status-ring-img {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--bg-tertiary);
+}
+
+.status-ring-initial {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 20px;
+    color: white;
+    background: var(--gradient-primary);
+}
+
+.status-ring-add {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--whatsapp);
+    border: 2px solid var(--bg-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.status-ribbon-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+    max-width: 76px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+}
+
+/* Empty state */
+.status-empty {
+    text-align: center;
+    padding: 20px 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+/* ===== STATUS CREATE MODAL ===== */
+.status-create-modal {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    z-index: 99999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    transition: all 0.3s ease !important;
+    background: rgba(0, 0, 0, 0.85) !important;
+    backdrop-filter: blur(8px) !important;
+}
+
+.status-create-modal:not(.hidden) {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+.status-create-container {
+    position: relative;
+    background: #1a1a2e !important;
+    border: 1px solid #333 !important;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5) !important;
+    z-index: 2;
+    pointer-events: auto;
+    min-height: 300px;
+}
+
+.status-create-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.status-create-header h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.status-create-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: var(--transition-all);
+}
+
+.status-create-close:hover {
+    background: var(--bg-tertiary);
+    color: var(--text);
+}
+
+.status-create-post-btn {
+    background: var(--whatsapp);
+    border: none;
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 6px 16px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: var(--transition-all);
+}
+
+.status-create-post-btn:hover {
+    background: var(--whatsapp-dark);
+}
+
+.status-create-post-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Status type tabs */
+.status-type-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.status-type-tab {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 16px;
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    transition: var(--transition-all);
+}
+
+.status-type-tab.active,
+.status-type-tab:hover {
+    border-color: var(--whatsapp);
+    color: var(--whatsapp);
+    background: rgba(37, 211, 102, 0.1);
+}
+
+/* Text status creator */
+.status-text-creator {
+    padding: 16px 20px;
+}
+
+.status-text-preview {
+    aspect-ratio: 9/16;
+    max-height: 380px;
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    transition: background 0.3s ease;
+}
+
+.status-text-input {
+    width: 100%;
+    min-height: 120px;
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 22px;
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.4;
+    resize: none;
+    outline: none;
+    overflow: hidden;
+}
+
+.status-text-input::placeholder {
+    color: rgba(255,255,255,0.5);
+}
+
+.status-text-options {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.status-bg-picker {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.status-bg-option {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    cursor: pointer;
+    transition: var(--transition-all);
+    flex-shrink: 0;
+}
+
+.status-bg-option.active {
+    border-color: white;
+    box-shadow: 0 0 0 2px var(--whatsapp), 0 2px 8px rgba(0,0,0,0.3);
+    transform: scale(1.15);
+}
+
+.status-font-picker {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+.status-font-option {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    border: 2px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-all);
+}
+
+.status-font-option.active {
+    border-color: var(--whatsapp);
+    background: rgba(37, 211, 102, 0.1);
+    color: var(--whatsapp);
+}
+
+/* Image status creator */
+.status-image-creator {
+    padding: 16px 20px;
+}
+
+.status-image-preview {
+    aspect-ratio: 9/16;
+    max-height: 380px;
+    border-radius: var(--radius-lg);
+    background: var(--bg-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    overflow: hidden;
+    position: relative;
+    border: 2px dashed var(--border);
+}
+
+.status-image-preview:hover {
+    border-color: var(--whatsapp);
+}
+
+.status-image-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.status-image-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+}
+
+.status-image-icon {
+    font-size: 40px;
+    color: var(--whatsapp);
+    font-family: 'Material Icons';
+}
+
+.status-caption-input {
+    margin-top: 12px;
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-tertiary);
+    color: var(--text);
+    font-size: 14px;
+    resize: none;
+    outline: none;
+}
+
+.status-caption-input:focus {
+    border-color: var(--whatsapp);
+}
+
+/* ===== FULLSCREEN STATUS VIEWER ===== */
+.status-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+}
+
+.status-viewer-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    padding: 12px 16px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 100%);
+}
+
+.status-viewer-progress {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.status-progress-bar {
+    flex: 1;
+    height: 3px;
+    background: rgba(255,255,255,0.3);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+}
+
+.status-progress-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: white;
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.1s linear;
+}
+
+.status-progress-fill.completed {
+    width: 100% !important;
+}
+
+.status-progress-fill.active {
+    animation: progressFill linear forwards;
+}
+
+@keyframes progressFill {
+    from { width: 0%; }
+    to { width: 100%; }
+}
+
+.status-viewer-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.status-viewer-back {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 22px;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.status-viewer-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 16px;
+    color: white;
+    background: var(--gradient-primary);
+    flex-shrink: 0;
+}
+
+.status-viewer-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.status-viewer-name {
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.status-viewer-time {
+    color: rgba(255,255,255,0.7);
+    font-size: 12px;
+}
+
+.status-viewer-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.status-viewer-action-btn {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: white;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    transition: background 0.2s;
+}
+
+.status-viewer-action-btn:hover {
+    background: rgba(255,255,255,0.3);
+}
+
+.status-viewer-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.status-view-text {
+    color: white;
+    font-size: 28px;
+    font-weight: 700;
+    text-align: center;
+    padding: 40px;
+    max-width: 90%;
+    line-height: 1.4;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+}
+
+.status-view-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+}
+
+.status-view-caption {
+    position: absolute;
+    bottom: 80px;
+    left: 20px;
+    right: 20px;
+    text-align: center;
+    color: white;
+    font-size: 16px;
+    padding: 10px 16px;
+    background: rgba(0,0,0,0.5);
+    border-radius: var(--radius-lg);
+    backdrop-filter: blur(4px);
+}
+
+/* Navigation zones */
+.status-viewer-nav-left,
+.status-viewer-nav-right {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 30%;
+    z-index: 1;
+    cursor: pointer;
+}
+
+.status-viewer-nav-left {
+    left: 0;
+}
+
+.status-viewer-nav-right {
+    right: 0;
+}
+
+/* Reply bar */
+.status-viewer-reply {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(10px);
+    z-index: 2;
+}
+
+.status-reply-input {
+    flex: 1;
+    background: rgba(255,255,255,0.15);
+    border: none;
+    border-radius: var(--radius-full);
+    padding: 10px 16px;
+    color: white;
+    font-size: 14px;
+    outline: none;
+}
+
+.status-reply-input::placeholder {
+    color: rgba(255,255,255,0.5);
+}
+
+.status-reply-send {
+    background: var(--whatsapp);
+    border: none;
+    color: white;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+
+.status-reply-send:hover {
+    background: var(--whatsapp-dark);
+}
+
+/* Action buttons bar */
+.status-viewer-actions-bar {
+    position: absolute;
+    bottom: 70px;
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 2;
+}
+
+.status-action-btn {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: white;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    transition: background 0.2s, transform 0.2s;
+    position: relative;
+}
+
+.status-action-btn:hover {
+    background: rgba(255,255,255,0.3);
+    transform: scale(1.1);
+}
+
+.status-action-btn.liked {
+    background: rgba(255,0,0,0.3);
+}
+
+.status-action-btn.liked .material-icon {
+    color: #ff4757;
+}
+
+.action-count {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: var(--whatsapp);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 10px;
+    min-width: 16px;
+    text-align: center;
+}
+
+.material-icon {
+    font-family: 'Material Icons';
+    font-size: 18px;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .status-create-container {
+        max-width: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+        margin: 0;
+    }
+
+    .status-viewer-name {
+        font-size: 13px;
+    }
+
+    .status-view-text {
+        font-size: 22px;
+    }
+
+    .status-ribbon-item {
+        width: 68px;
+    }
+
+    .status-ring-container {
+        width: 56px;
+        height: 56px;
+    }
+
+    .status-ring-img,
+    .status-ring-initial {
+        width: 46px;
+        height: 46px;
     }
 }

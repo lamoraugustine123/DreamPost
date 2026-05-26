@@ -1332,7 +1332,16 @@ async function init() {
     initSecurityFeatures();
     initModalTabs();
     initModalOverlay();
-    renderWhatsAppStories();
+    initStatusImageUpload();
+    initStatusViewerGestures();
+    startStatusRefresh();
+    renderStatusStories();
+
+    // Add event listener to static status button
+    const staticBtn = document.getElementById('staticAddStatusBtn');
+    if (staticBtn) {
+        staticBtn.addEventListener('click', openStatusCreateModal);
+    }
     
     // Initialize offline system
     updateOnlineStatus();
@@ -1341,6 +1350,9 @@ async function init() {
     const activeEmail = storage.getSession();
     if (activeEmail) {
         currentUser = await getUser(activeEmail);
+        // Start real-time polling for logged-in users
+        startFeedPolling();
+        startFollowCountPolling();
     }
     await renderApp();
     
@@ -1419,6 +1431,9 @@ async function handleLogin() {
         
         storage.setSession(currentUser.email);
         showToast(`Welcome back, ${currentUser.name}!`);
+        
+        // Start real-time feed polling
+        startFeedPolling();
         
         // Clear form
         elements.loginEmail.value = '';
@@ -1855,8 +1870,9 @@ function initializeActivityFunctionality() {
         // Load activities and notifications
         loadRecentActivity();
         loadNotifications();
+        startNotificationPolling();
         console.log('✅ Activity functionality initialized');
-        
+
     } catch (error) {
         console.error('❌ Error initializing Activity functionality:', error);
     }
@@ -2077,34 +2093,89 @@ function loadRecentActivity() {
 /**
  * Load notifications
  */
+let notificationPollingInterval = null;
+
 function loadNotifications() {
     try {
         const notificationsList = document.getElementById('notificationsList');
         if (!notificationsList) return;
         
-        const notifications = [
-            { title: 'New follower', message: 'Emma Davis started following you', time: '5 min ago', unread: true },
-            { title: 'Dream liked', message: 'Your dream received 10 likes', time: '1 hour ago', unread: true },
-            { title: 'New comment', message: 'Frank commented on your dream', time: '2 hours ago', unread: false },
-            { title: 'Weekly digest', message: 'Your weekly dream summary is ready', time: '1 day ago', unread: false }
-        ];
-        
-        const notificationsHtml = notifications.map(notif => `
-            <div class="notification-item ${notif.unread ? 'unread' : ''}">
-                <div class="notification-content">
-                    <div class="notification-title">${notif.title}</div>
-                    <div class="notification-message">${notif.message}</div>
-                    <div class="notification-time">${notif.time}</div>
-                </div>
-                ${notif.unread ? '<div class="notification-dot"></div>' : ''}
-            </div>
-        `).join('');
-        
-        notificationsList.innerHTML = notificationsHtml;
+        // Fetch real notifications from backend
+        fetch(`${API_URL}/notifications`)
+            .then(res => res.json())
+            .then(notifications => {
+                const notificationsHtml = notifications.map(notif => `
+                    <div class="notification-item ${notif.unread ? 'unread' : ''}">
+                        <div class="notification-content">
+                            <div class="notification-title">${notif.title}</div>
+                            <div class="notification-message">${notif.message}</div>
+                            <div class="notification-time">${formatTimeAgo(notif.createdAt)}</div>
+                        </div>
+                        ${notif.unread ? '<div class="notification-dot"></div>' : ''}
+                    </div>
+                `).join('');
+                
+                notificationsList.innerHTML = notificationsHtml || '<p class="no-notifications">No notifications</p>';
+            })
+            .catch(err => {
+                console.error('Error fetching notifications:', err);
+                // Fallback to static data
+                const notifications = [
+                    { title: 'New follower', message: 'Emma Davis started following you', time: '5 min ago', unread: true },
+                    { title: 'Dream liked', message: 'Your dream received 10 likes', time: '1 hour ago', unread: true },
+                    { title: 'New comment', message: 'Frank commented on your dream', time: '2 hours ago', unread: false },
+                    { title: 'Weekly digest', message: 'Your weekly dream summary is ready', time: '1 day ago', unread: false }
+                ];
+                
+                const notificationsHtml = notifications.map(notif => `
+                    <div class="notification-item ${notif.unread ? 'unread' : ''}">
+                        <div class="notification-content">
+                            <div class="notification-title">${notif.title}</div>
+                            <div class="notification-message">${notif.message}</div>
+                            <div class="notification-time">${notif.time}</div>
+                        </div>
+                        ${notif.unread ? '<div class="notification-dot"></div>' : ''}
+                    </div>
+                `).join('');
+                
+                notificationsList.innerHTML = notificationsHtml;
+            });
         
     } catch (error) {
         console.error('❌ Error loading notifications:', error);
     }
+}
+
+function startNotificationPolling() {
+    if (notificationPollingInterval) {
+        clearInterval(notificationPollingInterval);
+    }
+    
+    // Poll every 10 seconds for new notifications
+    notificationPollingInterval = setInterval(() => {
+        const notificationsList = document.getElementById('notificationsList');
+        if (notificationsList && !notificationsList.offsetParent === null) {
+            loadNotifications();
+        }
+    }, 10000);
+    
+    console.log('Notification polling started');
+}
+
+function stopNotificationPolling() {
+    if (notificationPollingInterval) {
+        clearInterval(notificationPollingInterval);
+        notificationPollingInterval = null;
+        console.log('Notification polling stopped');
+    }
+}
+
+function formatTimeAgo(timestamp) {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+    return `${Math.floor(seconds / 86400)} days ago`;
 }
 
 /**
@@ -3035,15 +3106,19 @@ async function renderApp() {
     switch (currentView) {
         case 'create':
             elements.createView.classList.remove('hidden');
+            stopProfilePolling();
             break;
         case 'profile':
             elements.profileView.classList.remove('hidden');
+            startProfilePolling();
             break;
         case 'settings':
             elements.settingsView.classList.remove('hidden');
+            stopProfilePolling();
             break;
         default:
             elements.feedView.classList.remove('hidden');
+            stopProfilePolling();
     }
     
     // Load user data
@@ -3192,6 +3267,10 @@ function debounce(func, wait) {
 // Create debounced version of renderFeed for frequent calls
 const debouncedRenderFeed = debounce(renderFeed, 300);
 
+// Real-time feed polling
+let feedPollingInterval = null;
+let lastPostCount = 0;
+
 async function renderFeed() {
     console.log('renderFeed called');
     
@@ -3224,6 +3303,13 @@ async function renderFeed() {
         
         console.log('Filtered posts:', posts.length);
         console.log('Feed list element:', elements.feedList);
+        
+        // Check for new posts and show notification
+        if (posts.length > lastPostCount && lastPostCount > 0) {
+            const newPostsCount = posts.length - lastPostCount;
+            showToast(`${newPostsCount} new post${newPostsCount > 1 ? 's' : ''} available!`);
+        }
+        lastPostCount = posts.length;
         
         // Clear feed list first to prevent duplication
         if (elements.feedList) {
@@ -3266,6 +3352,95 @@ async function renderFeed() {
         updateUserInterface();
     } finally {
         isRenderingFeed = false;
+    }
+}
+
+// Start real-time feed polling
+function startFeedPolling() {
+    if (feedPollingInterval) {
+        clearInterval(feedPollingInterval);
+    }
+    
+    // Poll every 5 seconds for feed updates (likes, comments, new posts)
+    feedPollingInterval = setInterval(async () => {
+        if (currentUser && elements.feedList) {
+            try {
+                const posts = await getPosts();
+                const currentPostCount = posts.filter(post => post.public !== false).length;
+                
+                // Always refresh feed to update likes/comments in real-time
+                await renderFeed();
+                
+                if (currentPostCount > lastPostCount && lastPostCount > 0) {
+                    console.log('New posts detected');
+                }
+                lastPostCount = currentPostCount;
+            } catch (error) {
+                console.error('Error polling for feed updates:', error);
+            }
+        }
+    }, 5000); // 5 seconds for real-time updates
+    
+    console.log('Feed polling started');
+}
+
+// Stop feed polling
+function stopFeedPolling() {
+    if (feedPollingInterval) {
+        clearInterval(feedPollingInterval);
+        feedPollingInterval = null;
+        console.log('Feed polling stopped');
+    }
+}
+
+let profilePollingInterval = null;
+let followCountPollingInterval = null;
+
+function startProfilePolling() {
+    if (profilePollingInterval) {
+        clearInterval(profilePollingInterval);
+    }
+    
+    // Poll every 10 seconds for profile updates
+    profilePollingInterval = setInterval(async () => {
+        const profileView = document.getElementById('profileView');
+        if (profileView && !profileView.classList.contains('hidden') && currentUser) {
+            await renderProfile();
+        }
+    }, 10000);
+    
+    console.log('Profile polling started');
+}
+
+function stopProfilePolling() {
+    if (profilePollingInterval) {
+        clearInterval(profilePollingInterval);
+        profilePollingInterval = null;
+        console.log('Profile polling stopped');
+    }
+}
+
+function startFollowCountPolling() {
+    if (followCountPollingInterval) {
+        clearInterval(followCountPollingInterval);
+    }
+    
+    // Poll every 15 seconds for follow count updates
+    followCountPollingInterval = setInterval(async () => {
+        if (currentUser) {
+            const counts = await dataCache.getCachedFollowCounts(currentUser.email);
+            dataCache.updateUserStats(counts);
+        }
+    }, 15000);
+    
+    console.log('Follow count polling started');
+}
+
+function stopFollowCountPolling() {
+    if (followCountPollingInterval) {
+        clearInterval(followCountPollingInterval);
+        followCountPollingInterval = null;
+        console.log('Follow count polling stopped');
     }
 }
 
@@ -3819,9 +3994,9 @@ function copyPostLink(postId) {
 
 function createCommentsModal() {
     const modalHtml = `
-        <div id="commentsModal" class="modal-popup tiktok-comments">
+        <div id="commentsModal" class="modal-popup comments-popup">
             <div class="modal-header">
-                <span class="tiktok-pill-handle"></span>
+                <span class="pill-handle"></span>
                 <h3 id="commentsCount">Comments</h3>
                 <button class="modal-close-btn" onclick="closeCommentsModal()">✕</button>
             </div>
@@ -4081,9 +4256,9 @@ async function sharePost(postId) {
                             <div class="share-icon linkedin">💼</div>
                             <span>LinkedIn</span>
                         </button>
-                        <button class="share-option" onclick="shareToSocial('whatsapp', '${postId}')">
-                            <div class="share-icon whatsapp">📱</div>
-                            <span>WhatsApp</span>
+                        <button class="share-option" onclick="shareToSocial('messenger', '${postId}')">
+                            <div class="share-icon messenger">📱</div>
+                            <span>Messenger</span>
                         </button>
                         <button class="share-option" onclick="shareToSocial('telegram', '${postId}')">
                             <div class="share-icon telegram">✈️</div>
@@ -4145,7 +4320,7 @@ async function shareToSocial(platform, postId) {
         case 'linkedin':
             shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(postUrl)}`;
             break;
-        case 'whatsapp':
+        case 'messenger':
             shareUrl = `https://wa.me/?text=${encodeURIComponent(postText + ' ' + postUrl)}`;
             break;
         case 'telegram':
@@ -4355,7 +4530,7 @@ window.shareViaSocial = function(platform) {
         case 'linkedin':
             shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(profileUrl)}`;
             break;
-        case 'whatsapp':
+        case 'messenger':
             shareUrl = `https://wa.me/?text=${encodeURIComponent(text + ' ' + profileUrl)}`;
             break;
         case 'telegram':
@@ -7859,8 +8034,1958 @@ window.uploadCoverImageSimple = function(event) {
     reader.readAsDataURL(file);
 };
 
-function renderWhatsAppStories() {
-    console.log('📱 WhatsApp stories placeholder - not yet implemented');
+// ===== STATUS UPDATES SYSTEM (Privacy + Social Modes) =====
+
+let statusData = []; // grouped by user
+let statusViewerState = {
+    groupIndex: 0,
+    statusIndex: 0,
+    timer: null,
+    progressTimer: null,
+    isPaused: false,
+    duration: 5000 // 5 seconds per status
+};
+let currentStatusType = 'text';
+let selectedStatusBg = '#075e54';
+let selectedStatusFont = 'normal';
+let statusImageBase64 = null;
+
+// ---- Render Status Ribbon ----
+
+function renderStatusStories() {
+    console.log('renderStatusStories called');
+    const container = document.getElementById('statusContainer');
+    console.log('Container:', container);
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    // Always show "My Status" add button first
+    const addBtn = document.createElement('div');
+    addBtn.className = 'status-ribbon-item';
+    addBtn.innerHTML = `
+        <div class="status-ring-container">
+            <div class="status-ring"></div>
+            <div class="status-ring-initial" style="background: var(--gradient-primary);">
+                ${currentUser ? getInitials(currentUser.name) : '?'}
+            </div>
+            <div class="status-ring-add">+</div>
+        </div>
+        <div class="status-ribbon-name">My Status</div>
+    `;
+    addBtn.style.cursor = 'pointer';
+    addBtn.style.pointerEvents = 'auto';
+    addBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('Plus button clicked!');
+        window.openStatusCreateModal();
+    });
+    container.appendChild(addBtn);
+    console.log('Button added:', addBtn);
+
+    // Add status groups from API
+    if (!statusData || statusData.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'status-empty';
+        empty.textContent = 'No status updates yet';
+        container.appendChild(empty);
+        return;
+    }
+
+    for (const group of statusData) {
+        const isMyStatus = currentUser && group.authorEmail === currentUser.email;
+        const isViewed = !isMyStatus && group.statuses.every(s =>
+            s.viewedBy && s.viewedBy.includes(currentUser?.email)
+        );
+
+        const item = document.createElement('div');
+        item.className = 'status-ribbon-item';
+        item.style.cursor = 'pointer';
+        item.style.pointerEvents = 'auto';
+        item.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Status item clicked for:', group.authorEmail);
+            openStatusViewer(group.authorEmail);
+        };
+
+        // Add hover preview
+        item.addEventListener('mouseenter', (e) => {
+            showStatusPreview(group, e.target);
+        });
+        item.addEventListener('mouseleave', () => {
+            hideStatusPreview();
+        });
+
+        const avatarEl = group.profileImage
+            ? `<img class="status-ring-img" src="${group.profileImage}" alt="">`
+            : `<div class="status-ring-initial">${getInitials(group.authorName)}</div>`;
+
+        item.innerHTML = `
+            <div class="status-ring-container">
+                <div class="status-ring ${isViewed ? '' : 'unviewed'}"></div>
+                ${avatarEl}
+            </div>
+            <div class="status-ribbon-name">${group.authorName}</div>
+        `;
+        container.appendChild(item);
+    }
+}
+
+function getInitials(name) {
+    if (!name) return '?';
+    return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+}
+
+function timeAgo(ts) {
+    const sec = Math.floor((Date.now() - ts) / 1000);
+    if (sec < 60) return 'Just now';
+    if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+    if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+    return `${Math.floor(sec / 86400)}d ago`;
+}
+
+function showStatusPreview(group, target) {
+    // Remove existing preview
+    hideStatusPreview();
+
+    const preview = document.createElement('div');
+    preview.className = 'status-preview-popup';
+    preview.id = 'statusPreviewPopup';
+
+    const latestStatus = group.statuses[0];
+    let previewContent = '';
+
+    if (latestStatus.mediaType === 'image' && latestStatus.mediaUrl) {
+        previewContent = `<img src="${latestStatus.mediaUrl}" alt="" style="width: 100%; height: 100%; object-fit: cover;">`;
+    } else if (latestStatus.mediaType === 'video' && latestStatus.mediaUrl) {
+        previewContent = `<video src="${latestStatus.mediaUrl}" muted style="width: 100%; height: 100%; object-fit: cover;"></video>`;
+    } else {
+        previewContent = `<div style="background: ${latestStatus.backgroundColor || '#075e54'}; color: white; padding: 20px; text-align: center; display: flex; align-items: center; justify-content: center; height: 100%; font-size: 16px;">${latestStatus.text || 'Text status'}</div>`;
+    }
+
+    preview.innerHTML = `
+        <div class="status-preview-content">
+            ${previewContent}
+            <div class="status-preview-info">
+                <div class="status-preview-name">${group.authorName}</div>
+                <div class="status-preview-time">${timeAgo(latestStatus.createdAt)}</div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(preview);
+
+    // Position preview near the target
+    const rect = target.getBoundingClientRect();
+    preview.style.position = 'fixed';
+    preview.style.left = (rect.left + rect.width / 2 - 100) + 'px';
+    preview.style.top = (rect.bottom + 10) + 'px';
+}
+
+function hideStatusPreview() {
+    const existing = document.getElementById('statusPreviewPopup');
+    if (existing) {
+        existing.remove();
+    }
+}
+
+// ---- Fetch Statuses ----
+
+async function loadStatuses() {
+    try {
+        const userEmail = currentUser ? currentUser.email : null;
+        const url = userEmail ? `${API_URL}/statuses?userEmail=${encodeURIComponent(userEmail)}` : `${API_URL}/statuses`;
+        console.log('Loading statuses from:', url);
+        const res = await fetch(url);
+        statusData = await res.json();
+        console.log('Loaded status data:', statusData);
+        renderStatusStories();
+    } catch (e) {
+        console.log('Could not load statuses:', e);
+    }
+}
+
+// ---- Create Status Modal ----
+
+function openStatusCreateModal() {
+    console.log('openStatusCreateModal called');
+    if (!currentUser) {
+        showToast('Please log in to post a status');
+        return;
+    }
+    console.log('User logged in, creating modal');
+
+    // Always remove existing modal and create fresh one
+    let existingModal = document.getElementById('statusCreateModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    console.log('Creating new modal');
+    const modal = document.createElement('div');
+    modal.id = 'statusCreateModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.8);backdrop-filter:blur(2px);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:#121212;border-radius:16px;width:100%;max-width:500px;max-height:90vh;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,0.4);">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid rgba(255,255,255,0.1);">
+                <h3 style="margin:0;color:#ffffff;font-size:17px;font-weight:600;">Create Status</h3>
+                <button onclick="document.getElementById('statusCreateModal').remove()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:20px;color:#ffffff;">&times;</button>
+            </div>
+            <div style="padding:20px;overflow-y:auto;max-height:calc(90vh - 80px);">
+                <!-- Status Type Toggle -->
+                <div style="margin-bottom:20px;">
+                    <label style="display:block;color:rgba(255,255,255,0.7);font-size:13px;margin-bottom:8px;font-weight:600;">Status Type</label>
+                    <div style="display:flex;gap:12px;">
+                        <button id="modePrivacy" onclick="setMode('privacy')" style="flex:1;padding:12px;background:linear-gradient(135deg,#25D366,#128C7E);color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.2s;">
+                            <div style="font-size:16px;margin-bottom:4px;">🔒</div>
+                            <div>Private</div>
+                            <div style="font-size:11px;font-weight:400;opacity:0.8;">Only contacts</div>
+                        </button>
+                        <button id="modeSocial" onclick="setMode('social')" style="flex:1;padding:12px;background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.7);border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.2s;">
+                            <div style="font-size:16px;margin-bottom:4px;">🌍</div>
+                            <div>Public</div>
+                            <div style="font-size:11px;font-weight:400;opacity:0.8;">Everyone</div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Upload Options -->
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
+                    <div onclick="openCamera()" style="display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;padding:16px;background:rgba(255,255,255,0.05);border-radius:12px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">
+                        <span style="font-size:24px;">📷</span>
+                        <span style="font-size:11px;color:rgba(255,255,255,0.7);">Camera</span>
+                    </div>
+                    <div onclick="openGallery()" style="display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;padding:16px;background:rgba(255,255,255,0.05);border-radius:12px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">
+                        <span style="font-size:24px;">🖼️</span>
+                        <span style="font-size:11px;color:rgba(255,255,255,0.7);">Gallery</span>
+                    </div>
+                    <div onclick="showTextEditor()" style="display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;padding:16px;background:rgba(255,255,255,0.05);border-radius:12px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">
+                        <span style="font-size:24px;">✏️</span>
+                        <span style="font-size:11px;color:rgba(255,255,255,0.7);">Text</span>
+                    </div>
+                    <div onclick="openMusicPicker()" style="display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;padding:16px;background:rgba(255,255,255,0.05);border-radius:12px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;">
+                        <span style="font-size:24px;">🎵</span>
+                        <span style="font-size:11px;color:rgba(255,255,255,0.7);">Music</span>
+                    </div>
+                </div>
+
+                <!-- Media Preview Area -->
+                <div id="mediaPreviewArea" style="display:none;margin-bottom:20px;">
+                    <div id="mediaPreviewContainer" style="position:relative;border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.05);min-height:200px;">
+                        <img id="previewImage" style="width:100%;height:auto;object-fit:contain;display:none;">
+                        <video id="previewVideo" style="width:100%;height:auto;object-fit:contain;display:none;" controls autoplay muted playsinline></video>
+                        <canvas id="processingCanvas" style="display:none;"></canvas>
+                        <button onclick="clearMedia()" style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.7);border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;color:white;font-size:18px;">&times;</button>
+                    </div>
+                    
+                    <!-- Editing Tools -->
+                    <div id="editingTools" style="margin-top:16px;padding:16px;background:rgba(255,255,255,0.03);border-radius:12px;">
+                        <div style="color:rgba(255,255,255,0.7);font-size:13px;margin-bottom:12px;font-weight:600;">Editing Tools</div>
+                        
+                        <!-- Filters -->
+                        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                            <button onclick="applyFilter('none')" style="padding:8px 12px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">Original</button>
+                            <button onclick="applyFilter('grayscale')" style="padding:8px 12px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">B&W</button>
+                            <button onclick="applyFilter('sepia')" style="padding:8px 12px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">Sepia</button>
+                            <button onclick="applyFilter('contrast')" style="padding:8px 12px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">Contrast</button>
+                            <button onclick="applyFilter('brightness')" style="padding:8px 12px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">Bright</button>
+                        </div>
+                        
+                        <!-- Decorations -->
+                        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                            <button onclick="addSticker()" style="padding:8px 12px;background:linear-gradient(135deg,#fe2c55,#ff6b6b);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">🎨 Add Sticker</button>
+                            <button onclick="addTextOverlay()" style="padding:8px 12px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">✏️ Add Text</button>
+                        </div>
+                        
+                        <!-- Video-specific tools -->
+                        <div id="videoEditingTools" style="display:none;padding-top:12px;border-top:1px solid rgba(255,255,255,0.1);">
+                            <div style="color:rgba(255,255,255,0.7);font-size:13px;margin-bottom:12px;font-weight:600;">Video Tools</div>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                <button onclick="showCropTool()" style="padding:8px 12px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">✂️ Crop</button>
+                                <button onclick="showTrimTool()" style="padding:8px 12px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">⏱️ Trim</button>
+                                <button onclick="showMusicPicker()" style="padding:8px 12px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">🎵 Add Music</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Text Input -->
+                <textarea id="statusTextInput" placeholder="What's happening?" style="width:100%;height:120px;background:rgba(255,255,255,0.05);color:#ffffff;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;resize:none;font-size:15px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin-bottom:16px;"></textarea>
+
+                <!-- Mood Selector -->
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;color:rgba(255,255,255,0.7);font-size:13px;margin-bottom:8px;">Mood</label>
+                    <select id="moodSelector" style="width:100%;padding:10px;background:rgba(255,255,255,0.05);color:#ffffff;border:1px solid rgba(255,255,255,0.1);border-radius:8px;font-size:14px;">
+                        <option value="casual">😊 Casual</option>
+                        <option value="joyful">🎉 Joyful</option>
+                        <option value="thoughtful">🤔 Thoughtful</option>
+                        <option value="celebratory">🎊 Celebratory</option>
+                    </select>
+                </div>
+
+                <!-- Privacy Settings -->
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;color:rgba(255,255,255,0.7);font-size:13px;margin-bottom:8px;">Privacy</label>
+                    <select id="privacySelector" style="width:100%;padding:10px;background:rgba(255,255,255,0.05);color:#ffffff;border:1px solid rgba(255,255,255,0.1);border-radius:8px;font-size:14px;">
+                        <option value="contacts">My Contacts</option>
+                        <option value="public">Public</option>
+                        <option value="selected">Selected Contacts</option>
+                    </select>
+                </div>
+
+                <!-- Engagement Toggles -->
+                <div style="display:flex;gap:16px;margin-bottom:20px;">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" id="allowReplies" checked style="width:16px;height:16px;">
+                        <span style="color:rgba(255,255,255,0.7);font-size:13px;">Replies</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" id="allowLikes" checked style="width:16px;height:16px;">
+                        <span style="color:rgba(255,255,255,0.7);font-size:13px;">Likes</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" id="allowComments" checked style="width:16px;height:16px;">
+                        <span style="color:rgba(255,255,255,0.7);font-size:13px;">Comments</span>
+                    </label>
+                </div>
+
+                <div style="display:flex;gap:12px;">
+                    <button id="previewStatusBtn" style="flex:1;padding:14px;background:#444 !important;color:white !important;border:2px solid #555 !important;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;">👁️ Preview</button>
+                    <button id="postStatusBtn" style="flex:1;padding:14px;background:#00C853 !important;color:white !important;border:2px solid #00E676 !important;border-radius:12px;cursor:pointer;font-size:16px;font-weight:700;">✅ POST STATUS</button>
+                </div>
+            </div>
+        </div>
+        <input type="file" id="fileInput" accept="image/*,video/*,audio/*" hidden onchange="handleFileSelect(event)">
+    `;
+    document.body.appendChild(modal);
+    console.log('Modal appended to body, dimensions:', modal.offsetWidth, 'x', modal.offsetHeight);
+
+    // Attach event listeners to buttons (only once)
+    const previewBtn = document.getElementById('previewStatusBtn');
+    const postBtn = document.getElementById('postStatusBtn');
+    if (previewBtn && !previewBtn.hasAttribute('data-listener-attached')) {
+        previewBtn.addEventListener('click', showPreview);
+        previewBtn.setAttribute('data-listener-attached', 'true');
+        console.log('Preview button listener attached');
+    }
+    if (postBtn && !postBtn.hasAttribute('data-listener-attached')) {
+        postBtn.addEventListener('click', postStatus);
+        postBtn.setAttribute('data-listener-attached', 'true');
+        console.log('Post button listener attached');
+    }
+
+    resetStatusForm();
+}
+
+function showPreview() {
+    const textInput = document.getElementById('statusTextInput');
+    const moodSelector = document.getElementById('moodSelector');
+    const privacySelector = document.getElementById('privacySelector');
+    const text = textInput ? textInput.value.trim() : '';
+    const mood = moodSelector ? moodSelector.value : 'casual';
+    const privacy = privacySelector ? privacySelector.value : 'contacts';
+
+    // Hide the main modal instead of removing it
+    const mainModal = document.getElementById('statusCreateModal');
+    if (mainModal) {
+        mainModal.style.display = 'none';
+    }
+
+    // Create preview modal
+    const previewModal = document.createElement('div');
+    previewModal.id = 'statusPreviewModal';
+    previewModal.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.8);backdrop-filter:blur(2px);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    previewModal.innerHTML = `
+        <div style="background:#121212;border-radius:16px;width:100%;max-width:500px;max-height:90vh;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,0.4);">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid rgba(255,255,255,0.1);">
+                <h3 style="margin:0;color:#ffffff;font-size:17px;font-weight:600;">Preview Status</h3>
+                <button onclick="closePreview()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:20px;color:#ffffff;">&times;</button>
+            </div>
+            <div style="padding:20px;overflow-y:auto;max-height:calc(90vh - 80px);">
+                <!-- Preview Content -->
+                <div style="background:rgba(255,255,255,0.05);border-radius:12px;padding:20px;margin-bottom:20px;">
+                    ${currentMediaUrl ? `
+                        ${currentMediaType === 'image' ? `<img src="${currentMediaUrl}" style="width:100%;border-radius:8px;margin-bottom:12px;">` : ''}
+                        ${currentMediaType === 'video' ? `<video src="${currentMediaUrl}" controls style="width:100%;border-radius:8px;margin-bottom:12px;"></video>` : ''}
+                    ` : ''}
+                    ${text ? `<p style="color:#ffffff;font-size:15px;margin:0 0 12px 0;">${text}</p>` : ''}
+                    <div style="display:flex;gap:8px;font-size:12px;color:rgba(255,255,255,0.5);">
+                        <span>Mode: ${currentMode}</span>
+                        <span>•</span>
+                        <span>Mood: ${mood}</span>
+                        <span>•</span>
+                        <span>Privacy: ${privacy}</span>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div style="display:flex;gap:12px;">
+                    <button onclick="closePreviewAndEdit()" style="flex:1;padding:14px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;">Edit</button>
+                    <button onclick="confirmPost()" style="flex:1;padding:14px;background:linear-gradient(135deg,#fe2c55,#ff6b6b);color:white;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:700;">Post Status</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(previewModal);
+}
+
+function closePreview() {
+    const previewModal = document.getElementById('statusPreviewModal');
+    if (previewModal) previewModal.remove();
+    
+    // Show the main modal again
+    const mainModal = document.getElementById('statusCreateModal');
+    if (mainModal) {
+        mainModal.style.display = 'flex';
+    }
+}
+
+function closePreviewAndEdit() {
+    const previewModal = document.getElementById('statusPreviewModal');
+    if (previewModal) previewModal.remove();
+    
+    // Show the main modal again instead of recreating it
+    const mainModal = document.getElementById('statusCreateModal');
+    if (mainModal) {
+        mainModal.style.display = 'flex';
+    }
+}
+
+function confirmPost() {
+    const previewModal = document.getElementById('statusPreviewModal');
+    if (previewModal) previewModal.remove();
+    postStatus();
+}
+
+// Global state for status creation
+let currentMode = 'privacy';
+let currentMediaFile = null;
+let currentMediaUrl = null;
+let currentMediaType = null;
+let isPostingStatus = false;
+let currentMusicFile = null;
+
+function setMode(mode) {
+    currentMode = mode;
+    const privacyBtn = document.getElementById('modePrivacy');
+    const socialBtn = document.getElementById('modeSocial');
+    
+    if (mode === 'privacy') {
+        privacyBtn.style.background = 'linear-gradient(135deg,#25D366,#128C7E)';
+        privacyBtn.style.color = 'white';
+        socialBtn.style.background = 'rgba(255,255,255,0.1)';
+        socialBtn.style.color = 'rgba(255,255,255,0.7)';
+    } else {
+        socialBtn.style.background = 'linear-gradient(135deg,#fe2c55,#ff6b6b)';
+        socialBtn.style.color = 'white';
+        privacyBtn.style.background = 'rgba(255,255,255,0.1)';
+        privacyBtn.style.color = 'rgba(255,255,255,0.7)';
+    }
+    
+    // Update privacy selector based on mode
+    const privacySelector = document.getElementById('privacySelector');
+    if (privacySelector) {
+        privacySelector.value = mode === 'privacy' ? 'contacts' : 'public';
+    }
+}
+
+function openCamera() {
+    const fileInput = document.getElementById('fileInput');
+    fileInput.accept = 'image/*,video/*';
+    fileInput.setAttribute('capture', 'environment');
+    fileInput.click();
+}
+
+function openGallery() {
+    const fileInput = document.getElementById('fileInput');
+    fileInput.accept = 'image/*,video/*,audio/*';
+    fileInput.removeAttribute('capture');
+    fileInput.click();
+}
+
+function showTextEditor() {
+    document.getElementById('statusTextInput').focus();
+}
+
+function openMusicPicker() {
+    const fileInput = document.getElementById('fileInput');
+    fileInput.accept = 'audio/*';
+    fileInput.removeAttribute('capture');
+    fileInput.click();
+}
+
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    currentMediaFile = file;
+    const fileType = file.type.split('/')[0];
+    currentMediaType = fileType;
+
+    // Show loading state
+    const previewArea = document.getElementById('mediaPreviewArea');
+    const previewContainer = document.getElementById('mediaPreviewContainer');
+    
+    // Force square container structure
+    if (previewContainer) {
+        previewContainer.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:rgba(255,255,255,0.7);">Loading...</div>
+        `;
+        previewContainer.style.aspectRatio = '1 / 1';
+        previewContainer.style.width = '100%';
+        previewContainer.style.maxWidth = '400px';
+        previewContainer.style.margin = '0 auto';
+        previewContainer.style.position = 'relative';
+        previewContainer.style.borderRadius = '12px';
+        previewContainer.style.overflow = 'hidden';
+        previewContainer.style.background = 'rgba(255,255,255,0.05)';
+    }
+    previewArea.style.display = 'block';
+
+    // Create local preview
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        currentMediaUrl = e.target.result;
+        if (fileType === 'image') {
+            // Process to square format first, then show preview
+            processImageToSquare(e.target.result);
+        } else if (fileType === 'video') {
+            // For videos, show preview with CSS handling square aspect ratio
+            showMediaPreview(e.target.result, fileType);
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+function processImageToSquare(dataUrl) {
+    const canvas = document.getElementById('processingCanvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+        // Use smaller size for faster preview (400x400)
+        const previewSize = 400;
+        canvas.width = previewSize;
+        canvas.height = previewSize;
+        
+        // Calculate center crop
+        const minDimension = Math.min(img.naturalWidth, img.naturalHeight);
+        const startX = (img.naturalWidth - minDimension) / 2;
+        const startY = (img.naturalHeight - minDimension) / 2;
+        
+        // Draw cropped square image
+        ctx.drawImage(img, startX, startY, minDimension, minDimension, 0, 0, previewSize, previewSize);
+        
+        // Convert back to data URL with lower quality for speed
+        const squareImage = canvas.toDataURL('image/jpeg', 0.8);
+        currentMediaUrl = squareImage;
+        showMediaPreview(squareImage, 'image');
+    };
+    
+    img.src = dataUrl;
+}
+
+function showMediaPreview(url, type) {
+    const previewArea = document.getElementById('mediaPreviewArea');
+    const previewContainer = document.getElementById('mediaPreviewContainer');
+    const videoEditingTools = document.getElementById('videoEditingTools');
+
+    previewArea.style.display = 'block';
+
+    // Rebuild preview container with proper structure
+    if (previewContainer) {
+        previewContainer.innerHTML = `
+            <img id="previewImage" style="width:100%;height:100%;object-fit:cover;display:none;position:absolute;top:0;left:0;">
+            <video id="previewVideo" style="width:100%;height:100%;object-fit:cover;display:none;position:absolute;top:0;left:0;" controls autoplay muted playsinline></video>
+            <canvas id="processingCanvas" style="display:none;"></canvas>
+            <button onclick="clearMedia()" style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.7);border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;color:white;font-size:18px;z-index:10;">&times;</button>
+        `;
+        
+        // Force square aspect ratio
+        previewContainer.style.aspectRatio = '1 / 1';
+        previewContainer.style.width = '100%';
+        previewContainer.style.maxWidth = '400px';
+        previewContainer.style.margin = '0 auto';
+        previewContainer.style.position = 'relative';
+        previewContainer.style.borderRadius = '12px';
+        previewContainer.style.overflow = 'hidden';
+        previewContainer.style.background = 'rgba(255,255,255,0.05)';
+    }
+
+    const previewImage = document.getElementById('previewImage');
+    const previewVideo = document.getElementById('previewVideo');
+
+    if (type === 'image') {
+        previewImage.src = url;
+        previewImage.style.display = 'block';
+        previewVideo.style.display = 'none';
+        if (videoEditingTools) videoEditingTools.style.display = 'none';
+    } else if (type === 'video') {
+        previewVideo.src = url;
+        previewVideo.style.display = 'block';
+        previewImage.style.display = 'none';
+        if (videoEditingTools) videoEditingTools.style.display = 'block';
+    }
+
+    const editingTools = document.getElementById('editingTools');
+    if (editingTools) editingTools.style.display = 'block';
+}
+
+function clearMedia() {
+    currentMediaFile = null;
+    currentMediaUrl = null;
+    currentMediaType = null;
+    currentFilter = 'none';
+    
+    const previewArea = document.getElementById('mediaPreviewArea');
+    const previewImage = document.getElementById('previewImage');
+    const previewVideo = document.getElementById('previewVideo');
+    const fileInput = document.getElementById('fileInput');
+
+    previewArea.style.display = 'none';
+    previewImage.src = '';
+    previewImage.style.display = 'none';
+    previewImage.style.filter = 'none';
+    previewVideo.src = '';
+    previewVideo.style.display = 'none';
+    previewVideo.style.filter = 'none';
+    fileInput.value = '';
+}
+
+let currentFilter = 'none';
+
+function applyFilter(filterType) {
+    currentFilter = filterType;
+    const previewImage = document.getElementById('previewImage');
+    const previewVideo = document.getElementById('previewVideo');
+    const canvas = document.getElementById('processingCanvas');
+    
+    // For videos, just apply CSS filter (actual video processing requires backend)
+    if (previewVideo && previewVideo.style.display !== 'none') {
+        let filterStyle = 'none';
+        switch(filterType) {
+            case 'grayscale': filterStyle = 'grayscale(100%)'; break;
+            case 'sepia': filterStyle = 'sepia(100%)'; break;
+            case 'contrast': filterStyle = 'contrast(150%)'; break;
+            case 'brightness': filterStyle = 'brightness(130%)'; break;
+            default: filterStyle = 'none';
+        }
+        previewVideo.style.filter = filterStyle;
+        return;
+    }
+    
+    // For images, use Canvas for actual processing
+    if (previewImage && previewImage.style.display !== 'none' && previewImage.src) {
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                
+                switch(filterType) {
+                    case 'grayscale':
+                        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                        data[i] = data[i + 1] = data[i + 2] = gray;
+                        break;
+                    case 'sepia':
+                        data[i] = Math.min(255, r * 0.393 + g * 0.769 + b * 0.189);
+                        data[i + 1] = Math.min(255, r * 0.349 + g * 0.686 + b * 0.168);
+                        data[i + 2] = Math.min(255, r * 0.272 + g * 0.534 + b * 0.131);
+                        break;
+                    case 'contrast':
+                        const factor = 1.5;
+                        data[i] = Math.min(255, Math.max(0, factor * (r - 128) + 128));
+                        data[i + 1] = Math.min(255, Math.max(0, factor * (g - 128) + 128));
+                        data[i + 2] = Math.min(255, Math.max(0, factor * (b - 128) + 128));
+                        break;
+                    case 'brightness':
+                        const bright = 30;
+                        data[i] = Math.min(255, r + bright);
+                        data[i + 1] = Math.min(255, g + bright);
+                        data[i + 2] = Math.min(255, b + bright);
+                        break;
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+            previewImage.src = canvas.toDataURL('image/jpeg', 0.9);
+        };
+        img.src = previewImage.src;
+    }
+}
+
+function addSticker() {
+    const stickers = ['😀', '😎', '🎉', '❤️', '🔥', '✨', '🌟', '💯', '🎵', '🎨'];
+    const randomSticker = stickers[Math.floor(Math.random() * stickers.length)];
+    
+    const previewContainer = document.getElementById('mediaPreviewContainer');
+    const sticker = document.createElement('div');
+    sticker.textContent = randomSticker;
+    sticker.className = 'media-overlay';
+    sticker.style.cssText = 'position:absolute;font-size:48px;cursor:move;top:50%;left:50%;transform:translate(-50%,-50%);user-select:none;';
+    
+    // Make sticker draggable
+    let isDragging = false;
+    let startX, startY;
+    
+    sticker.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX - sticker.offsetLeft;
+        startY = e.clientY - sticker.offsetTop;
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+            sticker.style.left = (e.clientX - startX) + 'px';
+            sticker.style.top = (e.clientY - startY) + 'px';
+            sticker.style.transform = 'none';
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+    
+    // Double click to remove
+    sticker.addEventListener('dblclick', () => {
+        sticker.remove();
+    });
+    
+    previewContainer.appendChild(sticker);
+}
+
+function addTextOverlay() {
+    const text = prompt('Enter text to overlay:');
+    if (!text) return;
+    
+    const previewContainer = document.getElementById('mediaPreviewContainer');
+    const textOverlay = document.createElement('div');
+    textOverlay.textContent = text;
+    textOverlay.className = 'media-overlay';
+    textOverlay.style.cssText = 'position:absolute;color:white;font-size:24px;font-weight:bold;text-shadow:2px 2px 4px rgba(0,0,0,0.8);cursor:move;top:50%;left:50%;transform:translate(-50%,-50%);user-select:none;white-space:nowrap;';
+    
+    // Make text draggable
+    let isDragging = false;
+    let startX, startY;
+    
+    textOverlay.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX - textOverlay.offsetLeft;
+        startY = e.clientY - textOverlay.offsetTop;
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+            textOverlay.style.left = (e.clientX - startX) + 'px';
+            textOverlay.style.top = (e.clientY - startY) + 'px';
+            textOverlay.style.transform = 'none';
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+    
+    // Double click to remove
+    textOverlay.addEventListener('dblclick', () => {
+        textOverlay.remove();
+    });
+    
+    previewContainer.appendChild(textOverlay);
+}
+
+function showCropTool() {
+    const previewImage = document.getElementById('previewImage');
+    const previewVideo = document.getElementById('previewVideo');
+    
+    // Check if we have an image or video
+    const isImage = previewImage && previewImage.style.display !== 'none' && previewImage.src;
+    const isVideo = previewVideo && previewVideo.style.display !== 'none' && previewVideo.src;
+    
+    if (!isImage && !isVideo) {
+        showToast('Please select an image or video first');
+        return;
+    }
+
+    // Remove existing crop modal
+    const existingModal = document.getElementById('cropModal');
+    if (existingModal) existingModal.remove();
+
+    // Create crop modal
+    const cropModal = document.createElement('div');
+    cropModal.id = 'cropModal';
+    cropModal.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.9);backdrop-filter:blur(2px);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    
+    const mediaSrc = isImage ? previewImage.src : previewVideo.src;
+    const mediaType = isImage ? 'image' : 'video';
+    const mediaElement = isImage ? `<img id="cropPreviewImage" src="${mediaSrc}" style="width:100%;display:block;">` : `<video id="cropPreviewVideo" src="${mediaSrc}" style="width:100%;display:block;"></video>`;
+    
+    cropModal.innerHTML = `
+        <div style="background:#121212;border-radius:16px;width:100%;max-width:600px;max-height:90vh;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,0.4);">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid rgba(255,255,255,0.1);">
+                <h3 style="margin:0;color:#ffffff;font-size:17px;font-weight:600;">Crop ${isImage ? 'Image' : 'Video'} (Square Only)</h3>
+                <button onclick="document.getElementById('cropModal').remove()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:20px;color:#ffffff;">&times;</button>
+            </div>
+            <div style="padding:20px;">
+                <div style="position:relative;background:rgba(255,255,255,0.05);border-radius:12px;overflow:hidden;margin-bottom:20px;aspect-ratio:1/1;">
+                    ${mediaElement}
+                    <div id="cropOverlay" style="position:absolute;top:10%;left:10%;width:80%;height:80%;border:2px dashed #fe2c55;background:rgba(254,44,85,0.1);cursor:move;">
+                        <div class="crop-handle" style="position:absolute;top:-5px;left:-5px;width:10px;height:10px;background:#fe2c55;border-radius:50%;"></div>
+                        <div class="crop-handle" style="position:absolute;top:-5px;right:-5px;width:10px;height:10px;background:#fe2c55;border-radius:50%;"></div>
+                        <div class="crop-handle" style="position:absolute;bottom:-5px;left:-5px;width:10px;height:10px;background:#fe2c55;border-radius:50%;"></div>
+                        <div class="crop-handle" style="position:absolute;bottom:-5px;right:-5px;width:10px;height:10px;background:#fe2c55;border-radius:50%;"></div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:12px;">
+                    <button onclick="document.getElementById('cropModal').remove()" style="flex:1;padding:14px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;">Cancel</button>
+                    <button onclick="applyCrop('${mediaType}')" style="flex:1;padding:14px;background:linear-gradient(135deg,#fe2c55,#ff6b6b);color:white;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:700;">Apply Crop</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(cropModal);
+
+    // Make crop overlay draggable and resizable
+    initCropOverlay();
+}
+
+function initCropOverlay() {
+    const overlay = document.getElementById('cropOverlay');
+    if (!overlay) return;
+
+    let isDragging = false;
+    let startX, startY, startLeft, startTop;
+    let startWidth, startHeight;
+
+    overlay.addEventListener('mousedown', (e) => {
+        if (e.target.classList.contains('crop-handle')) return;
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startLeft = overlay.offsetLeft;
+        startTop = overlay.offsetTop;
+        startWidth = overlay.offsetWidth;
+        startHeight = overlay.offsetHeight;
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        
+        // Calculate new position
+        let newLeft = startLeft + dx;
+        let newTop = startTop + dy;
+        
+        // Get container dimensions
+        const container = overlay.parentElement;
+        const containerWidth = container.offsetWidth;
+        const containerHeight = container.offsetHeight;
+        
+        // Constrain to container bounds
+        newLeft = Math.max(0, Math.min(newLeft, containerWidth - startWidth));
+        newTop = Math.max(0, Math.min(newTop, containerHeight - startHeight));
+        
+        overlay.style.left = newLeft + 'px';
+        overlay.style.top = newTop + 'px';
+        
+        // Maintain square aspect ratio
+        const size = Math.min(startWidth, startHeight);
+        overlay.style.width = size + 'px';
+        overlay.style.height = size + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+}
+
+function applyCrop(mediaType) {
+    if (mediaType === 'video') {
+        showToast('Video cropping requires backend processing (FFmpeg). This is a UI demo.');
+        document.getElementById('cropModal').remove();
+        return;
+    }
+    
+    // For images, use Canvas to actually crop
+    const previewImage = document.getElementById('previewImage');
+    const cropPreviewImage = document.getElementById('cropPreviewImage');
+    const cropOverlay = document.getElementById('cropOverlay');
+    const canvas = document.getElementById('processingCanvas');
+    
+    if (!cropPreviewImage || !cropOverlay || !canvas) {
+        document.getElementById('cropModal').remove();
+        return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+        // Get crop dimensions relative to the displayed image
+        const displayedWidth = cropPreviewImage.offsetWidth;
+        const displayedHeight = cropPreviewImage.offsetHeight;
+        const overlayTop = parseFloat(cropOverlay.style.top) / 100 * displayedHeight;
+        const overlayLeft = parseFloat(cropOverlay.style.left) / 100 * displayedWidth;
+        const overlayWidth = parseFloat(cropOverlay.style.width) / 100 * displayedWidth;
+        const overlayHeight = parseFloat(cropOverlay.style.height) / 100 * displayedHeight;
+        
+        // Calculate actual crop coordinates in the original image
+        const scaleX = img.naturalWidth / displayedWidth;
+        const scaleY = img.naturalHeight / displayedHeight;
+        
+        const cropX = overlayLeft * scaleX;
+        const cropY = overlayTop * scaleY;
+        const cropW = overlayWidth * scaleX;
+        const cropH = overlayHeight * scaleY;
+        
+        // Set canvas to crop dimensions
+        canvas.width = cropW;
+        canvas.height = cropH;
+        
+        // Draw cropped portion
+        ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        
+        // Update preview image with cropped result
+        previewImage.src = canvas.toDataURL('image/jpeg', 0.9);
+        
+        document.getElementById('cropModal').remove();
+        showToast('Image cropped successfully!');
+    };
+    img.src = previewImage.src;
+}
+
+function showTrimTool() {
+    const previewVideo = document.getElementById('previewVideo');
+    if (!previewVideo || !previewVideo.src) {
+        showToast('Please select a video first');
+        return;
+    }
+
+    // Remove existing trim modal
+    const existingModal = document.getElementById('trimModal');
+    if (existingModal) existingModal.remove();
+
+    // Create trim modal
+    const trimModal = document.createElement('div');
+    trimModal.id = 'trimModal';
+    trimModal.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.9);backdrop-filter:blur(2px);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    trimModal.innerHTML = `
+        <div style="background:#121212;border-radius:16px;width:100%;max-width:600px;max-height:90vh;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,0.4);">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid rgba(255,255,255,0.1);">
+                <h3 style="margin:0;color:#ffffff;font-size:17px;font-weight:600;">Trim Video</h3>
+                <button onclick="document.getElementById('trimModal').remove()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:20px;color:#ffffff;">&times;</button>
+            </div>
+            <div style="padding:20px;">
+                <video id="trimPreviewVideo" src="${previewVideo.src}" style="width:100%;border-radius:12px;margin-bottom:20px;" controls></video>
+                
+                <div style="margin-bottom:20px;">
+                    <label style="display:block;color:rgba(255,255,255,0.7);font-size:13px;margin-bottom:8px;">Start Time (seconds)</label>
+                    <input type="number" id="trimStartTime" value="0" min="0" step="0.1" style="width:100%;padding:10px;background:rgba(255,255,255,0.05);color:#ffffff;border:1px solid rgba(255,255,255,0.1);border-radius:8px;font-size:14px;">
+                </div>
+                
+                <div style="margin-bottom:20px;">
+                    <label style="display:block;color:rgba(255,255,255,0.7);font-size:13px;margin-bottom:8px;">End Time (seconds)</label>
+                    <input type="number" id="trimEndTime" value="10" min="0" step="0.1" style="width:100%;padding:10px;background:rgba(255,255,255,0.05);color:#ffffff;border:1px solid rgba(255,255,255,0.1);border-radius:8px;font-size:14px;">
+                </div>
+                
+                <div style="display:flex;gap:12px;">
+                    <button onclick="document.getElementById('trimModal').remove()" style="flex:1;padding:14px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;">Cancel</button>
+                    <button onclick="applyTrim()" style="flex:1;padding:14px;background:linear-gradient(135deg,#fe2c55,#ff6b6b);color:white;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:700;">Apply Trim</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(trimModal);
+
+    // Set video duration
+    const trimPreviewVideo = document.getElementById('trimPreviewVideo');
+    trimPreviewVideo.addEventListener('loadedmetadata', () => {
+        document.getElementById('trimEndTime').value = trimPreviewVideo.duration;
+    });
+}
+
+function applyTrim() {
+    const startTime = document.getElementById('trimStartTime').value;
+    const endTime = document.getElementById('trimEndTime').value;
+    showToast('Video trimming requires backend processing (FFmpeg). This is a UI demo.');
+    document.getElementById('trimModal').remove();
+}
+
+function showMusicPicker() {
+    const previewVideo = document.getElementById('previewVideo');
+    if (!previewVideo || !previewVideo.src) {
+        showToast('Please select a video first');
+        return;
+    }
+
+    // Remove existing music modal
+    const existingModal = document.getElementById('musicModal');
+    if (existingModal) existingModal.remove();
+
+    // Create music modal
+    const musicModal = document.createElement('div');
+    musicModal.id = 'musicModal';
+    musicModal.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.9);backdrop-filter:blur(2px);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    musicModal.innerHTML = `
+        <div style="background:#121212;border-radius:16px;width:100%;max-width:500px;max-height:90vh;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,0.4);">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid rgba(255,255,255,0.1);">
+                <h3 style="margin:0;color:#ffffff;font-size:17px;font-weight:600;">Add Background Music</h3>
+                <button onclick="document.getElementById('musicModal').remove()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:20px;color:#ffffff;">&times;</button>
+            </div>
+            <div style="padding:20px;">
+                <div style="margin-bottom:20px;">
+                    <label style="display:block;color:rgba(255,255,255,0.7);font-size:13px;margin-bottom:8px;">Volume</label>
+                    <input type="range" id="musicVolume" min="0" max="100" value="30" style="width:100%;cursor:pointer;">
+                </div>
+                
+                <div style="margin-bottom:20px;">
+                    <label style="display:block;color:rgba(255,255,255,0.7);font-size:13px;margin-bottom:8px;">Or Upload Your Own Music</label>
+                    <button onclick="document.getElementById('musicFileInput').click()" style="width:100%;padding:14px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;">🎵 Upload Music File</button>
+                    <input type="file" id="musicFileInput" accept="audio/*" hidden onchange="handleMusicSelect(event)">
+                </div>
+                
+                <div id="selectedMusicInfo" style="display:none;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:20px;">
+                    <div style="color:rgba(255,255,255,0.7);font-size:13px;">Selected: <span id="selectedMusicName" style="color:#ffffff;"></span></div>
+                </div>
+                
+                <div style="display:flex;gap:12px;">
+                    <button onclick="document.getElementById('musicModal').remove()" style="flex:1;padding:14px;background:rgba(255,255,255,0.1);color:white;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;">Cancel</button>
+                    <button onclick="applyMusic()" style="flex:1;padding:14px;background:linear-gradient(135deg,#fe2c55,#ff6b6b);color:white;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:700;">Add Music</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(musicModal);
+}
+
+function handleMusicSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    document.getElementById('selectedMusicInfo').style.display = 'block';
+    document.getElementById('selectedMusicName').textContent = file.name;
+    
+    // Store the music file
+    currentMusicFile = file;
+}
+
+function applyMusic() {
+    const volume = document.getElementById('musicVolume').value;
+    if (currentMusicFile) {
+        showToast('Video music addition requires backend processing (FFmpeg). This is a UI demo.');
+    } else {
+        showToast('No music selected');
+    }
+    document.getElementById('musicModal').remove();
+}
+
+// Function to burn overlays (stickers and text) into the image
+function burnOverlaysToImage() {
+    const previewImage = document.getElementById('previewImage');
+    const previewContainer = document.getElementById('mediaPreviewContainer');
+    const canvas = document.getElementById('processingCanvas');
+    
+    if (!previewImage || previewImage.style.display === 'none' || !previewImage.src) {
+        return null; // No image to process
+    }
+    
+    const overlays = previewContainer.querySelectorAll('.media-overlay');
+    if (overlays.length === 0) {
+        return null; // No overlays to burn
+    }
+    
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    return new Promise((resolve) => {
+        img.onload = () => {
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            ctx.drawImage(img, 0, 0);
+            
+            // Calculate scale factor between displayed and actual image
+            const displayedWidth = previewImage.offsetWidth;
+            const displayedHeight = previewImage.offsetHeight;
+            const scaleX = img.naturalWidth / displayedWidth;
+            const scaleY = img.naturalHeight / displayedHeight;
+            
+            // Burn each overlay
+            overlays.forEach(overlay => {
+                const rect = overlay.getBoundingClientRect();
+                const containerRect = previewContainer.getBoundingClientRect();
+                
+                const x = (rect.left - containerRect.left) * scaleX;
+                const y = (rect.top - containerRect.top) * scaleY;
+                const fontSize = parseFloat(overlay.style.fontSize) * Math.min(scaleX, scaleY);
+                
+                ctx.font = `${overlay.style.fontWeight} ${fontSize}px ${getComputedStyle(overlay).fontFamily}`;
+                ctx.fillStyle = overlay.style.color || 'white';
+                ctx.textBaseline = 'top';
+                
+                if (overlay.style.textShadow) {
+                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.shadowBlur = 4;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                }
+                
+                ctx.fillText(overlay.textContent, x, y);
+                
+                // Reset shadow
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+            });
+            
+            resolve(canvas.toDataURL('image/jpeg', 0.9));
+        };
+        img.src = previewImage.src;
+    });
+}
+
+// Add to window object immediately
+window.openStatusCreateModal = openStatusCreateModal;
+window.setMode = setMode;
+window.openCamera = openCamera;
+window.openGallery = openGallery;
+window.showTextEditor = showTextEditor;
+window.openMusicPicker = openMusicPicker;
+window.handleFileSelect = handleFileSelect;
+window.clearMedia = clearMedia;
+window.showPreview = showPreview;
+window.showCropTool = showCropTool;
+window.showTrimTool = showTrimTool;
+window.showMusicPicker = showMusicPicker;
+window.handleMusicSelect = handleMusicSelect;
+window.applyMusic = applyMusic;
+window.closePreview = closePreview;
+window.confirmPost = confirmPost;
+window.postStatus = postStatus;
+window.applyFilter = applyFilter;
+window.addSticker = addSticker;
+window.addTextOverlay = addTextOverlay;
+
+function closeStatusCreateModal() {
+    const modal = document.getElementById('statusCreateModal');
+    if (modal) modal.remove();
+    statusImageBase64 = null;
+}
+
+function resetStatusForm() {
+    const textInput = document.getElementById('statusTextInput');
+    if (textInput) textInput.value = '';
+    currentMediaFile = null;
+    currentMediaUrl = null;
+    currentMediaType = null;
+    currentMode = 'privacy';
+}
+
+function switchStatusType(type) {
+    currentStatusType = type;
+    document.querySelectorAll('.status-type-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.type === type);
+    });
+    const textCreator = document.getElementById('statusTextCreator');
+    const imageCreator = document.getElementById('statusImageCreator');
+    if (textCreator) textCreator.classList.toggle('hidden', type !== 'text');
+    if (imageCreator) imageCreator.classList.toggle('hidden', type !== 'image');
+}
+
+function selectStatusBg(btn) {
+    document.querySelectorAll('.status-bg-option').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedStatusBg = btn.dataset.bg;
+    const preview = document.getElementById('statusTextPreview');
+    if (preview) preview.style.background = selectedStatusBg;
+}
+
+function selectStatusFont(btn) {
+    document.querySelectorAll('.status-font-option').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedStatusFont = btn.dataset.font;
+    const input = document.getElementById('statusTextInput');
+    if (input) {
+        input.style.fontStyle = selectedStatusFont === 'italic' ? 'italic' : 'normal';
+        input.style.fontWeight = selectedStatusFont === 'bold' ? '700' : '600';
+        input.style.fontFamily = selectedStatusFont === 'serif' ? 'Georgia, serif' : 'inherit';
+    }
+}
+
+// Image upload for status
+function initStatusImageUpload() {
+    const input = document.getElementById('statusImageInput');
+    const previewArea = document.getElementById('statusImagePreview');
+    if (!input || !previewArea) return;
+
+    previewArea.addEventListener('click', () => input.click());
+    input.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            statusImageBase64 = ev.target.result;
+            const img = document.getElementById('statusImagePreviewImg');
+            const placeholder = document.getElementById('statusImagePlaceholder');
+            if (img) {
+                img.src = statusImageBase64;
+                img.classList.remove('hidden');
+            }
+            if (placeholder) placeholder.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+// ---- Post Status ----
+
+async function postStatus() {
+    if (!currentUser) {
+        showToast('Please log in to post a status');
+        return;
+    }
+
+    // Prevent posting if already posting
+    if (isPostingStatus) {
+        console.log('Already posting, ignoring duplicate request');
+        return;
+    }
+    isPostingStatus = true;
+
+    const textInput = document.getElementById('statusTextInput');
+    const moodSelector = document.getElementById('moodSelector');
+    const privacySelector = document.getElementById('privacySelector');
+    const allowReplies = document.getElementById('allowReplies');
+    const allowLikes = document.getElementById('allowLikes');
+    const allowComments = document.getElementById('allowComments');
+
+    let payload = {
+        authorEmail: currentUser.email,
+        authorName: currentUser.name,
+        type: currentMediaType || 'text',
+        mediaType: currentMediaType || 'text',
+        mood: moodSelector ? moodSelector.value : 'casual',
+        mode: currentMode,
+        privacy: privacySelector ? privacySelector.value : 'contacts',
+        privacyList: '[]',
+        allowReplies: allowReplies ? allowReplies.checked : 1,
+        allowLikes: allowLikes ? allowLikes.checked : 1,
+        allowComments: allowComments ? allowComments.checked : 1
+    };
+
+    if (currentMediaType === 'text' || !currentMediaType) {
+        const text = textInput ? textInput.value.trim() : '';
+        if (!text && !currentMediaUrl) {
+            showToast('Please add text or media');
+            isPostingStatus = false;
+            return;
+        }
+        payload.text = text;
+    }
+
+    // Burn overlays into image before posting
+    if (currentMediaUrl && currentMediaType === 'image') {
+        const processedImage = await burnOverlaysToImage();
+        if (processedImage) {
+            payload.mediaUrl = processedImage;
+        } else {
+            payload.mediaUrl = currentMediaUrl;
+        }
+        payload.caption = textInput ? textInput.value.trim() : '';
+    } else if (currentMediaUrl) {
+        payload.mediaUrl = currentMediaUrl;
+        payload.caption = textInput ? textInput.value.trim() : '';
+    }
+
+    try {
+        console.log('Posting status with payload:', payload);
+        
+        // Close modal immediately before posting
+        closeStatusCreateModal();
+        
+        const res = await fetch(`${API_URL}/statuses`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        console.log('Status response status:', res.status);
+        
+        if (res.status === 413) {
+            throw new Error('File too large. Please use a smaller image or compress it.');
+        }
+        
+        const responseData = await res.json();
+        console.log('Status response data:', responseData);
+        if (!res.ok) throw new Error('Failed to post status');
+        showToast('Status posted!');
+        // Reload statuses and wait for them to load
+        console.log('Reloading statuses after post...');
+        await loadStatuses();
+        console.log('Statuses reloaded, rendering...');
+        renderStatusStories();
+    } catch (error) {
+        console.error('Error posting status:', error);
+        if (error.name === 'AbortError') {
+            showToast('Request timed out. Please try again.');
+        } else {
+            showToast('Failed to post status: ' + error.message);
+        }
+    } finally {
+        isPostingStatus = false;
+    }
+}
+
+// ---- Fullscreen Status Viewer ----
+
+function openStatusViewer(authorEmail) {
+    try {
+        console.log('openStatusViewer called with:', authorEmail);
+        console.log('statusData:', statusData);
+        if (!statusData.length) {
+            console.log('No status data, returning');
+            return;
+        }
+        const groupIndex = statusData.findIndex(g => g.authorEmail === authorEmail);
+        console.log('groupIndex:', groupIndex);
+        if (groupIndex === -1) {
+            console.log('Group not found, returning');
+            return;
+        }
+
+        statusViewerState.groupIndex = groupIndex;
+        statusViewerState.statusIndex = 0;
+        statusViewerState.isPaused = false;
+
+        const viewer = document.getElementById('statusViewer');
+        console.log('Viewer element:', viewer);
+        if (viewer) {
+            console.log('Removing hidden class from viewer');
+            viewer.classList.remove('hidden');
+            // Force explicit dimensions to ensure the viewer is visible
+            viewer.style.width = '100vw';
+            viewer.style.height = '100vh';
+            viewer.style.top = '0';
+            viewer.style.left = '0';
+            viewer.style.position = 'fixed';
+            
+            // Move viewer to body to escape parent overflow constraints
+            if (viewer.parentElement !== document.body) {
+                console.log('Moving viewer to body to escape parent constraints');
+                document.body.appendChild(viewer);
+            }
+            
+            // Attach button event listeners
+            const backBtn = document.getElementById('statusViewerBackBtn');
+            const closeBtn = document.getElementById('statusViewerCloseBtn');
+            const deleteBtn = document.getElementById('statusDeleteBtn');
+            
+            if (backBtn) {
+                backBtn.onclick = (e) => {
+                    e.preventDefault();
+                    console.log('Back button clicked');
+                    closeStatusViewer();
+                };
+            }
+            if (closeBtn) {
+                closeBtn.onclick = (e) => {
+                    e.preventDefault();
+                    console.log('Close button clicked');
+                    closeStatusViewer();
+                };
+            }
+            if (deleteBtn) {
+                deleteBtn.onclick = (e) => {
+                    e.preventDefault();
+                    console.log('Delete button clicked');
+                    deleteCurrentStatus();
+                };
+            }
+            
+            try {
+                const computedStyle = window.getComputedStyle(viewer);
+                console.log('Viewer computed display:', computedStyle.display);
+                console.log('Viewer computed visibility:', computedStyle.visibility);
+                console.log('Viewer computed opacity:', computedStyle.opacity);
+                console.log('Viewer computed z-index:', computedStyle.zIndex);
+                console.log('Viewer computed width:', computedStyle.width);
+                console.log('Viewer computed height:', computedStyle.height);
+                console.log('Viewer computed position:', computedStyle.position);
+            } catch (e) {
+                console.error('Error getting computed style:', e);
+            }
+        } else {
+            console.log('Viewer element not found!');
+        }
+
+        console.log('Calling renderCurrentStatus');
+        renderCurrentStatus();
+        console.log('Calling startStatusTimer');
+        startStatusTimer();
+        console.log('Calling startStatusEngagementPolling');
+        startStatusEngagementPolling();
+    } catch (error) {
+        console.error('Error in openStatusViewer:', error);
+    }
+}
+
+function closeStatusViewer() {
+    console.log('🚫 closeStatusViewer called');
+    stopStatusTimer();
+    stopStatusEngagementPolling();
+    const viewer = document.getElementById('statusViewer');
+    if (viewer) {
+        console.log('🚫 Adding hidden class to viewer');
+        viewer.classList.add('hidden');
+        // Clear inline styles to ensure hidden class takes effect
+        viewer.style.width = '';
+        viewer.style.height = '';
+        viewer.style.top = '';
+        viewer.style.left = '';
+        viewer.style.position = '';
+    } else {
+        console.log('❌ Viewer element not found');
+    }
+}
+
+function renderCurrentStatus() {
+    try {
+        console.log('renderCurrentStatus called');
+        const group = statusData[statusViewerState.groupIndex];
+        console.log('Group:', group);
+        if (!group || !group.statuses.length) {
+            console.log('No group or statuses, closing viewer');
+            closeStatusViewer();
+            return;
+        }
+
+        const status = group.statuses[statusViewerState.statusIndex];
+        console.log('Status:', status);
+        if (!status) {
+            console.log('No status, closing viewer');
+            closeStatusViewer();
+            return;
+        }
+
+        // Update header
+        document.getElementById('statusViewerName').textContent = group.authorName;
+        document.getElementById('statusViewerTime').textContent = timeAgo(status.createdAt);
+
+        // Avatar
+        const avatarEl = document.getElementById('statusViewerAvatar');
+        if (avatarEl) {
+            avatarEl.textContent = getInitials(group.authorName);
+            if (group.profileImage) {
+                avatarEl.style.backgroundImage = `url(${group.profileImage})`;
+                avatarEl.style.backgroundSize = 'cover';
+                avatarEl.textContent = '';
+            } else {
+                avatarEl.style.backgroundImage = '';
+                avatarEl.style.background = 'var(--gradient-primary)';
+            }
+        }
+
+        // Show/hide delete button
+        const deleteBtn = document.getElementById('statusDeleteBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = (currentUser && group.authorEmail === currentUser.email) ? 'flex' : 'none';
+        }
+
+        // Render progress bars
+        const barsContainer = document.getElementById('statusProgressBars');
+        if (barsContainer) {
+            barsContainer.innerHTML = group.statuses.map((s, i) => {
+                let fillClass = '';
+                if (i < statusViewerState.statusIndex) fillClass = 'completed';
+                else if (i === statusViewerState.statusIndex) fillClass = 'active';
+                return `<div class="status-progress-bar"><div class="status-progress-fill ${fillClass}" style="animation-duration: ${statusViewerState.duration}ms;"></div></div>`;
+            }).join('');
+        }
+
+        // Render content based on mode
+        const content = document.getElementById('statusViewerContent');
+        if (content) {
+            const mode = status.mode || 'privacy';
+            const mood = status.mood || 'casual';
+            
+            // Clear previous mood classes
+            content.className = '';
+            
+            // Apply mood animation class
+            content.classList.add(`status-mood-${mood}`);
+            
+            if (status.mediaType === 'image' && status.mediaUrl) {
+                content.innerHTML = `<img class="status-view-image" src="${status.mediaUrl}" alt="">`;
+                if (status.caption) {
+                    content.innerHTML += `<div class="status-view-caption">${escapeHtml(status.caption)}</div>`;
+                }
+            } else if (status.mediaType === 'video' && status.mediaUrl) {
+                content.innerHTML = `<video class="status-view-video" src="${status.mediaUrl}" autoplay loop muted playsinline></video>`;
+                if (status.caption) {
+                    content.innerHTML += `<div class="status-view-caption">${escapeHtml(status.caption)}</div>`;
+                }
+            } else if (status.mediaType === 'audio' && status.audioUrl) {
+                content.innerHTML = `<audio class="status-view-audio" src="${status.audioUrl}" controls></audio>`;
+                if (status.text) {
+                    content.innerHTML += `<div class="status-view-caption">${escapeHtml(status.text)}</div>`;
+                }
+            } else {
+                content.innerHTML = `<div class="status-view-text" style="font-family: ${status.fontStyle === 'serif' ? 'Georgia,serif' : 'inherit'}; font-style: ${status.fontStyle === 'italic' ? 'italic' : 'normal'}; font-weight: ${status.fontStyle === 'bold' ? '700' : '700'};">${escapeHtml(status.text)}</div>`;
+                content.style.background = status.backgroundColor || '#075e54';
+            }
+        }
+
+        // Update engagement display based on mode and toggles
+        const engagementEl = document.getElementById('statusViewerEngagement');
+        if (engagementEl) {
+            const allowLikes = status.allowLikes !== false;
+            const allowComments = status.allowComments !== false;
+
+            if (mode === 'privacy') {
+                // Privacy mode: show viewer count
+                const viewerCount = status.viewedBy ? status.viewedBy.length : 0;
+                engagementEl.innerHTML = `
+                    <div class="status-viewer-count">
+                        <span class="viewer-icon">👁️</span>
+                        <span class="viewer-number">${viewerCount}</span>
+                        <span class="viewer-label">views</span>
+                    </div>
+                `;
+            } else {
+                // Social mode: show likes and comments based on toggles
+                let engagementHTML = '<div class="status-likes-comments">';
+                if (allowLikes) {
+                    engagementHTML += `<span class="likes-count">❤️ ${status.likes || 0}</span>`;
+                }
+                if (allowComments) {
+                    engagementHTML += `<span class="comments-count">💬 ${status.comments || 0}</span>`;
+                }
+                engagementHTML += '</div>';
+                engagementEl.innerHTML = engagementHTML;
+            }
+        }
+
+        // Update reply button visibility based on allowReplies toggle
+        const replyBtn = document.getElementById('statusReplyBtn');
+        if (replyBtn) {
+            replyBtn.style.display = status.allowReplies !== false ? 'flex' : 'none';
+        }
+
+        // Update action button counts
+        const likeCount = document.getElementById('statusLikeCount');
+        const commentCount = document.getElementById('statusCommentCount');
+        if (likeCount) likeCount.textContent = status.likes || 0;
+        if (commentCount) commentCount.textContent = status.comments || 0;
+
+        // Update like button state
+        const likeBtn = document.getElementById('statusLikeBtn');
+        if (likeBtn) {
+            // For now, we'll show all as unliked (would need to track user's likes)
+            likeBtn.classList.remove('liked');
+            likeBtn.querySelector('.material-icon').textContent = 'favorite_border';
+        }
+
+        // Mark as viewed
+        if (currentUser && group.authorEmail !== currentUser.email) {
+            markStatusViewed(status.id, currentUser.email);
+        }
+    } catch (error) {
+        console.error('Error in renderCurrentStatus:', error);
+    }
+}
+
+function startStatusTimer() {
+    stopStatusTimer();
+    console.log('⏱️ Starting status timer for', statusViewerState.duration, 'ms');
+    statusViewerState.timer = setTimeout(() => {
+        console.log('⏱️ Timer fired, calling nextStatus');
+        nextStatus();
+    }, statusViewerState.duration);
+}
+
+function stopStatusTimer() {
+    if (statusViewerState.timer) {
+        clearTimeout(statusViewerState.timer);
+        statusViewerState.timer = null;
+    }
+}
+
+function pauseStatusTimer() {
+    statusViewerState.isPaused = true;
+    stopStatusTimer();
+    const activeFill = document.querySelector('.status-progress-fill.active');
+    if (activeFill) {
+        activeFill.style.animationPlayState = 'paused';
+    }
+}
+
+function resumeStatusTimer() {
+    statusViewerState.isPaused = false;
+    startStatusTimer();
+}
+
+function nextStatus() {
+    const group = statusData[statusViewerState.groupIndex];
+    if (!group) { closeStatusViewer(); return; }
+
+    if (statusViewerState.statusIndex < group.statuses.length - 1) {
+        statusViewerState.statusIndex++;
+        renderCurrentStatus();
+        startStatusTimer();
+    } else {
+        // Move to next group or close
+        if (statusViewerState.groupIndex < statusData.length - 1) {
+            statusViewerState.groupIndex++;
+            statusViewerState.statusIndex = 0;
+            renderCurrentStatus();
+            startStatusTimer();
+        } else {
+            closeStatusViewer();
+        }
+    }
+}
+
+function prevStatus() {
+    if (statusViewerState.statusIndex > 0) {
+        statusViewerState.statusIndex--;
+    } else if (statusViewerState.groupIndex > 0) {
+        statusViewerState.groupIndex--;
+        const prevGroup = statusData[statusViewerState.groupIndex];
+        statusViewerState.statusIndex = prevGroup ? prevGroup.statuses.length - 1 : 0;
+    } else {
+        return; // at the very beginning
+    }
+    renderCurrentStatus();
+    startStatusTimer();
+}
+
+async function markStatusViewed(statusId, viewerEmail) {
+    try {
+        await fetch(`${API_URL}/statuses/${statusId}/view`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ viewerEmail })
+        });
+    } catch (e) {
+        // silently fail
+    }
+}
+
+async function deleteCurrentStatus() {
+    const group = statusData[statusViewerState.groupIndex];
+    if (!group) return;
+    const status = group.statuses[statusViewerState.statusIndex];
+    if (!status || !currentUser) return;
+
+    try {
+        const res = await fetch(`${API_URL}/statuses/${status.id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ authorEmail: currentUser.email })
+        });
+        if (!res.ok) throw new Error('Delete failed');
+        showToast('Status deleted');
+
+        // Remove from local array
+        group.statuses.splice(statusViewerState.statusIndex, 1);
+        if (group.statuses.length === 0) {
+            statusData.splice(statusViewerState.groupIndex, 1);
+            if (statusData.length === 0) {
+                closeStatusViewer();
+            } else if (statusViewerState.groupIndex >= statusData.length) {
+                statusViewerState.groupIndex = statusData.length - 1;
+                statusViewerState.statusIndex = 0;
+                renderCurrentStatus();
+                startStatusTimer();
+            } else {
+                statusViewerState.statusIndex = 0;
+                renderCurrentStatus();
+                startStatusTimer();
+            }
+        } else {
+            if (statusViewerState.statusIndex >= group.statuses.length) {
+                statusViewerState.statusIndex = group.statuses.length - 1;
+            }
+            renderCurrentStatus();
+            startStatusTimer();
+        }
+
+        renderStatusStories();
+    } catch (e) {
+        showToast('Failed to delete status');
+    }
+}
+
+async function toggleStatusLike() {
+    if (!currentUser) {
+        showToast('Please log in to like statuses');
+        return;
+    }
+
+    const group = statusData[statusViewerState.groupIndex];
+    if (!group) return;
+    const status = group.statuses[statusViewerState.statusIndex];
+    if (!status) return;
+
+    const likeBtn = document.getElementById('statusLikeBtn');
+    const isLiked = likeBtn.classList.contains('liked');
+
+    try {
+        const endpoint = isLiked ? 'unlike' : 'like';
+        const res = await fetch(`${API_URL}/statuses/${status.id}/${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userEmail: currentUser.email })
+        });
+        
+        if (!res.ok) throw new Error('Failed to update like');
+        
+        const result = await res.json();
+        
+        // Update UI
+        if (isLiked) {
+            likeBtn.classList.remove('liked');
+            likeBtn.querySelector('.material-icon').textContent = 'favorite_border';
+            status.likes = Math.max(0, status.likes - 1);
+        } else {
+            likeBtn.classList.add('liked');
+            likeBtn.querySelector('.material-icon').textContent = 'favorite';
+            status.likes = (status.likes || 0) + 1;
+        }
+        
+        document.getElementById('statusLikeCount').textContent = status.likes;
+    } catch (error) {
+        console.error('Error toggling like:', error);
+        showToast('Failed to update like');
+    }
+}
+
+async function openStatusComments() {
+    if (!currentUser) {
+        showToast('Please log in to comment');
+        return;
+    }
+
+    const group = statusData[statusViewerState.groupIndex];
+    if (!group) return;
+    const status = group.statuses[statusViewerState.statusIndex];
+    if (!status) return;
+
+    // Focus on reply input
+    const replyInput = document.getElementById('statusReplyInput');
+    if (replyInput) {
+        replyInput.focus();
+        replyInput.placeholder = 'Add a comment...';
+    }
+}
+
+async function repostStatus() {
+    if (!currentUser) {
+        showToast('Please log in to repost');
+        return;
+    }
+
+    const group = statusData[statusViewerState.groupIndex];
+    if (!group) return;
+    const status = group.statuses[statusViewerState.statusIndex];
+    if (!status) return;
+
+    try {
+        const res = await fetch(`${API_URL}/statuses/${status.id}/repost`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                authorEmail: currentUser.email,
+                authorName: currentUser.name
+            })
+        });
+        
+        if (!res.ok) throw new Error('Failed to repost');
+        
+        showToast('Status reposted');
+        loadStatuses();
+    } catch (error) {
+        console.error('Error reposting:', error);
+        showToast('Failed to repost');
+    }
+}
+
+async function sendStatusReply() {
+    if (!currentUser) {
+        showToast('Please log in to reply');
+        return;
+    }
+
+    const input = document.getElementById('statusReplyInput');
+    const text = input ? input.value.trim() : '';
+    if (!text) return;
+
+    const group = statusData[statusViewerState.groupIndex];
+    if (!group) return;
+    const status = group.statuses[statusViewerState.statusIndex];
+    if (!status) return;
+
+    try {
+        const res = await fetch(`${API_URL}/statuses/${status.id}/comment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userEmail: currentUser.email,
+                userName: currentUser.name,
+                text: text
+            })
+        });
+        
+        if (!res.ok) throw new Error('Failed to post comment');
+        
+        // Update UI
+        status.comments = (status.comments || 0) + 1;
+        document.getElementById('statusCommentCount').textContent = status.comments;
+        
+        if (input) input.value = '';
+        showToast('Comment posted');
+    } catch (error) {
+        console.error('Error posting comment:', error);
+        showToast('Failed to post comment');
+    }
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Keyboard + touch controls for viewer
+document.addEventListener('keydown', (e) => {
+    const viewer = document.getElementById('statusViewer');
+    if (!viewer || viewer.classList.contains('hidden')) return;
+
+    if (e.key === 'ArrowRight' || e.key === ' ') nextStatus();
+    if (e.key === 'ArrowLeft') prevStatus();
+    if (e.key === 'Escape') closeStatusViewer();
+});
+
+// Pause on hold / touch
+function initStatusViewerGestures() {
+    const viewer = document.getElementById('statusViewer');
+    if (!viewer) return;
+
+    console.log('🖱️ Initializing status viewer gestures');
+
+    let touchStartX = 0;
+    viewer.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+        console.log('📱 Touch start, pausing timer');
+        pauseStatusTimer();
+    }, { passive: true });
+    viewer.addEventListener('touchend', (e) => {
+        const touchEndX = e.changedTouches[0].clientX;
+        const diff = touchStartX - touchEndX;
+        if (Math.abs(diff) > 50) {
+            if (diff > 0) nextStatus();
+            else prevStatus();
+        } else {
+            console.log('📱 Touch end, resuming timer');
+            resumeStatusTimer();
+        }
+    }, { passive: true });
+
+    // Mouse events for desktop
+    viewer.addEventListener('mousedown', (e) => {
+        console.log('🖱️ Mouse down, pausing timer');
+        pauseStatusTimer();
+    });
+    viewer.addEventListener('mouseup', (e) => {
+        console.log('🖱️ Mouse up, resuming timer');
+        resumeStatusTimer();
+    });
+    viewer.addEventListener('mouseleave', (e) => {
+        console.log('🖱️ Mouse leave, resuming timer');
+        resumeStatusTimer();
+    });
+}
+
+// ---- Auto refresh statuses periodically ----
+let statusRefreshInterval = null;
+let statusEngagementInterval = null;
+
+function startStatusRefresh() {
+    loadStatuses();
+    if (statusRefreshInterval) clearInterval(statusRefreshInterval);
+    // Refresh every 5 seconds for real-time status updates
+    statusRefreshInterval = setInterval(() => {
+        loadStatuses();
+        renderStatusStories();
+    }, 5000);
+    console.log('Status refresh polling started');
+}
+
+function startStatusEngagementPolling() {
+    if (statusEngagementInterval) clearInterval(statusEngagementInterval);
+    // Poll every 5 seconds for engagement updates when viewer is open
+    statusEngagementInterval = setInterval(() => {
+        if (!document.getElementById('statusViewer').classList.contains('hidden')) {
+            refreshCurrentStatusEngagement();
+        }
+    }, 5000);
+}
+
+function stopStatusEngagementPolling() {
+    if (statusEngagementInterval) {
+        clearInterval(statusEngagementInterval);
+        statusEngagementInterval = null;
+    }
+}
+
+async function refreshCurrentStatusEngagement() {
+    const group = statusData[statusViewerState.groupIndex];
+    if (!group) return;
+    const status = group.statuses[statusViewerState.statusIndex];
+    if (!status) return;
+
+    try {
+        const res = await fetch(`${API_URL}/statuses`);
+        if (!res.ok) return;
+        const allStatuses = await res.json();
+        
+        // Find the current status in the updated data
+        for (const updatedGroup of allStatuses) {
+            const updatedStatus = updatedGroup.statuses.find(s => s.id === status.id);
+            if (updatedStatus) {
+                // Update local data
+                status.likes = updatedStatus.likes || 0;
+                status.comments = updatedStatus.comments || 0;
+                status.viewedBy = updatedStatus.viewedBy || [];
+                
+                // Update UI
+                const likeCount = document.getElementById('statusLikeCount');
+                const commentCount = document.getElementById('statusCommentCount');
+                if (likeCount) likeCount.textContent = status.likes;
+                if (commentCount) commentCount.textContent = status.comments;
+                break;
+            }
+        }
+    } catch (error) {
+        console.error('Error refreshing engagement:', error);
+    }
 }
 
 // Make functions globally accessible
@@ -7869,5 +9994,21 @@ window.handleCoverUpload = window.uploadCoverImage;
 window.currentUser = currentUser;
 window.elements = elements;
 
-init();
+// Status functions for HTML onclick handlers
+window.openStatusCreateModal = openStatusCreateModal;
+window.closeStatusCreateModal = closeStatusCreateModal;
+window.switchStatusType = switchStatusType;
+window.selectStatusBg = selectStatusBg;
+window.selectStatusFont = selectStatusFont;
+window.postStatus = postStatus;
+window.openStatusViewer = openStatusViewer;
+window.closeStatusViewer = closeStatusViewer;
+window.nextStatus = nextStatus;
+window.prevStatus = prevStatus;
+window.deleteCurrentStatus = deleteCurrentStatus;
+window.sendStatusReply = sendStatusReply;
+window.toggleStatusLike = toggleStatusLike;
+window.openStatusComments = openStatusComments;
+window.repostStatus = repostStatus;
 
+init();

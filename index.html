@@ -267,48 +267,11 @@
                         </div>
                     </div>
 
-                    <!-- Feed Stories -->
+                    <!-- Feed Stories / Status Updates -->
                     <div class="stories-section">
                         <h3 class="section-title">Status Updates</h3>
-                        <div class="stories-container">
-                            <div class="story-item">
-                                <div class="whatsapp-story-card">
-                                    <div class="story-add">
-                                        <div class="story-add-icon">+</div>
-                                        <div class="story-add-text">My status</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="story-item">
-                                <div class="whatsapp-story-card">
-                                    <div class="story-avatar" style="background: var(--gradient-whatsapp);">JD</div>
-                                    <div class="story-info">
-                                        <div class="story-name">John</div>
-                                        <div class="story-time">2 hours ago</div>
-                                    </div>
-                                    <div class="story-status-text">Just finished an amazing dream! Flying over mountains was incredible! #DreamBig</div>
-                                </div>
-                            </div>
-                            <div class="story-item">
-                                <div class="whatsapp-story-card">
-                                    <div class="story-avatar" style="background: var(--gradient-whatsapp);">SM</div>
-                                    <div class="story-info">
-                                        <div class="story-name">Sarah</div>
-                                        <div class="story-time">5 hours ago</div>
-                                    </div>
-                                    <div class="story-status-text">Peaceful dream about a serene garden with glowing flowers. So calming! #Peaceful</div>
-                                </div>
-                            </div>
-                            <div class="story-item">
-                                <div class="whatsapp-story-card">
-                                    <div class="story-avatar" style="background: var(--gradient-whatsapp);">MK</div>
-                                    <div class="story-info">
-                                        <div class="story-name">Mike</div>
-                                        <div class="story-time">1 day ago</div>
-                                    </div>
-                                    <div class="story-status-text">Exploring an ancient library with books that wrote themselves. Each page told a new story! #Mystery</div>
-                                </div>
-                            </div>
+                        <div class="stories-container" id="statusContainer">
+                            <!-- Dynamically populated by JS -->
                         </div>
                     </div>
 
@@ -989,7 +952,7 @@
                         <h3 class="activity-title">Recent Activity</h3>
                         <div class="activity-list">
                             <div class="activity-item">
-                                <div class="activity-avatar" style="background: var(--gradient-whatsapp);">JD</div>
+                                <div class="activity-avatar" style="background: var(--gradient-primary);">JD</div>
                                 <div class="activity-content">
                                     <div class="activity-text">John liked your dream</div>
                                     <div class="activity-time">2 min ago</div>
@@ -1639,6 +1602,62 @@
     <div id="imagePreviewModal" class="image-preview-modal">
         <button class="close-btn" onclick="closeImagePreview()">×</button>
         <img id="previewImage" src="" alt="Image preview">
+    </div>
+
+    <!-- Fullscreen Status Viewer (WhatsApp/Facebook style) -->
+    <div id="statusViewer" class="status-viewer hidden">
+        <div class="status-viewer-header">
+            <div class="status-viewer-progress" id="statusProgressBars">
+                <!-- Progress bars dynamically added -->
+            </div>
+            <div class="status-viewer-info">
+                <button class="status-viewer-back" id="statusViewerBackBtn">&larr;</button>
+                <div class="status-viewer-avatar" id="statusViewerAvatar"></div>
+                <div class="status-viewer-meta">
+                    <div class="status-viewer-name" id="statusViewerName"></div>
+                    <div class="status-viewer-time" id="statusViewerTime"></div>
+                </div>
+                <div class="status-viewer-actions">
+                    <button class="status-viewer-action-btn" id="statusDeleteBtn" style="display:none;" title="Delete">
+                        <span class="material-icon">delete</span>
+                    </button>
+                    <button class="status-viewer-action-btn" id="statusViewerCloseBtn" title="Close">
+                        <span class="material-icon">&times;</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-viewer-content" id="statusViewerContent">
+            <!-- Status content rendered here -->
+        </div>
+
+        <!-- Navigation zones -->
+        <div class="status-viewer-nav-left" onclick="prevStatus()"></div>
+        <div class="status-viewer-nav-right" onclick="nextStatus()"></div>
+
+        <!-- Reply bar (like WhatsApp) -->
+        <div class="status-viewer-reply">
+            <input type="text" class="status-reply-input" id="statusReplyInput" placeholder="Reply to status...">
+            <button class="status-reply-send" onclick="sendStatusReply()">
+                <span class="material-icon">send</span>
+            </button>
+        </div>
+
+        <!-- Action buttons (like, comment, repost) -->
+        <div class="status-viewer-actions-bar">
+            <button class="status-action-btn" id="statusLikeBtn" onclick="toggleStatusLike()" title="Like">
+                <span class="material-icon">favorite_border</span>
+                <span class="action-count" id="statusLikeCount">0</span>
+            </button>
+            <button class="status-action-btn" onclick="openStatusComments()" title="Comment">
+                <span class="material-icon">chat_bubble_outline</span>
+                <span class="action-count" id="statusCommentCount">0</span>
+            </button>
+            <button class="status-action-btn" onclick="repostStatus()" title="Repost">
+                <span class="material-icon">repeat</span>
+            </button>
+        </div>
     </div>
 
     <script src="app.js"></script>

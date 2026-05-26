@@ -1,16 +1,55 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
 const database = require('./database');
 const { Pool } = require('pg');
 
+// Configure multer for file uploads
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadsDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({
+    storage: storage,
+    limits: {
+        fileSize: parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024 // 50MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = /jpeg|jpg|png|gif|mp4|mov|avi|mp3|wav/;
+        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedTypes.test(file.mimetype);
+        if (mimetype && extname) {
+            return cb(null, true);
+        } else {
+            cb(new Error('Invalid file type'));
+        }
+    }
+});
+
 // Supabase PostgreSQL Connection
 const supabasePool = new Pool({
-    connectionString: 'postgresql://postgres:Mrlamoraugustine@123@db.upkwtzufdedsfjklzmdq.supabase.co:5432/postgres',
-    ssl: { rejectUnauthorized: false },
+    host: process.env.SUPABASE_DB_HOST || 'db.upkwtzufdedsfjklzmdq.supabase.co',
+    port: parseInt(process.env.SUPABASE_DB_PORT) || 5432,
+    database: process.env.SUPABASE_DB_NAME || 'postgres',
+    user: process.env.SUPABASE_DB_USER || 'postgres',
+    password: process.env.SUPABASE_DB_PASSWORD,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : { rejectUnauthorized: false },
     max: 5,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000
@@ -98,6 +137,33 @@ function syncToSupabase(fn) {
 
 const app = express();
 const port = process.env.PORT || 3005;
+
+// Security headers
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    
+    // Content Security Policy
+    res.setHeader('Content-Security-Policy', 
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline' 'unsafe-hashes'; " +
+        "script-src-attr 'unsafe-inline'; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+        "font-src 'self' https://fonts.gstatic.com; " +
+        "img-src 'self' data: https:; " +
+        "media-src 'self' data: https:; " +
+        "connect-src 'self'"
+    );
+    
+    // HSTS for production
+    if (process.env.NODE_ENV === 'production') {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    }
+    
+    next();
+});
 
 function hashPassword(password) {
     const salt = crypto.randomBytes(16).toString('hex');
@@ -238,8 +304,8 @@ app.use((req, res, next) => {
 
 // Advanced rate limiting with express-rate-limit
 const generalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per window
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // Limit each IP to 100 requests per window
     message: {
         error: 'Too many requests from this IP. Please try again later.',
         retryAfter: 900 // 15 minutes in seconds
@@ -261,8 +327,8 @@ const generalLimiter = rateLimit({
 
 // Stricter rate limiting for authentication endpoints
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20, // Limit each IP to 20 auth requests per window (increased for testing)
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+    max: parseInt(process.env.AUTH_RATE_LIMIT_MAX_REQUESTS) || 20, // Limit each IP to 20 auth requests per window
     message: {
         error: 'Too many authentication attempts. Please try again later.',
         retryAfter: 900
@@ -281,14 +347,14 @@ const authLimiter = rateLimit({
 
 // Enable CORS for cross-origin requests from browser preview
 app.use(cors({
-    origin: true, // Allow all origins for development
+    origin: process.env.CORS_ORIGIN || true, // Allow all origins for development
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token']
 }));
 
 // Apply general rate limiting to all requests
-app.use(generalLimiter);
+// app.use(generalLimiter); // Disabled for development
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -943,6 +1009,289 @@ app.put('/api/users/cover-image', async (req, res) => {
     } catch (error) {
         console.error('Error updating cover image:', error);
         return res.status(500).json({ error: 'Failed to update cover image' });
+    }
+});
+
+// ===== STATUS UPDATES API ENDPOINTS =====
+
+// Get all active statuses (grouped by user)
+app.get('/api/statuses', async (req, res) => {
+    console.log('📨 GET /api/statuses received, userEmail:', req.query.userEmail);
+    try {
+        const userEmail = req.query.userEmail || null;
+        const statuses = await database.getActiveStatuses(userEmail);
+        console.log('📊 Statuses fetched:', statuses.length);
+        
+        // Group statuses by user (like WhatsApp)
+        const grouped = {};
+        for (const status of statuses) {
+            if (!grouped[status.authorEmail]) {
+                grouped[status.authorEmail] = {
+                    authorEmail: status.authorEmail,
+                    authorName: status.authorName,
+                    profileImage: status.profileImage || null,
+                    statuses: [],
+                    latestAt: status.createdAt
+                };
+            }
+            grouped[status.authorEmail].statuses.push(status);
+            if (status.createdAt > grouped[status.authorEmail].latestAt) {
+                grouped[status.authorEmail].latestAt = status.createdAt;
+            }
+        }
+
+        // Sort groups by latest status time
+        const result = Object.values(grouped).sort((a, b) => b.latestAt - a.latestAt);
+        console.log('📤 Sending grouped statuses:', result.length);
+        console.log('📤 Response data:', JSON.stringify(result, null, 2));
+        res.json(result);
+        console.log('✅ Response sent');
+    } catch (error) {
+        console.error('❌ Error getting statuses:', error);
+        res.status(500).json({ error: 'Failed to get statuses' });
+    }
+});
+
+// Get statuses for a specific user
+app.get('/api/statuses/user', async (req, res) => {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+    
+    try {
+        const statuses = await database.getStatusesByUser(email);
+        res.json(statuses);
+    } catch (error) {
+        console.error('Error getting user statuses:', error);
+        res.status(500).json({ error: 'Failed to get user statuses' });
+    }
+});
+
+// Create a new status
+// File upload endpoint
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const fileUrl = `/uploads/${req.file.filename}`;
+        const fileType = req.file.mimetype.split('/')[0];
+
+        res.json({
+            success: true,
+            fileUrl: fileUrl,
+            fileName: req.file.filename,
+            fileType: fileType,
+            mimeType: req.file.mimetype,
+            size: req.file.size
+        });
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Upload failed' });
+    }
+});
+
+// Cleanup expired statuses every hour
+setInterval(async () => {
+    try {
+        const result = await database.deleteExpiredStatuses();
+        if (result.deletedCount > 0) {
+            console.log(`Cleaned up ${result.deletedCount} expired statuses`);
+        }
+    } catch (error) {
+        console.error('Error cleaning up expired statuses:', error);
+    }
+}, 60 * 60 * 1000); // 1 hour
+
+// Manual cleanup endpoint
+app.post('/api/cleanup-expired', async (req, res) => {
+    try {
+        const result = await database.deleteExpiredStatuses();
+        res.json({ success: true, deletedCount: result.deletedCount });
+    } catch (error) {
+        console.error('Error cleaning up expired statuses:', error);
+        res.status(500).json({ error: 'Cleanup failed' });
+    }
+});
+
+app.post('/api/statuses', async (req, res) => {
+    console.log('📨 POST /api/statuses received');
+    const {
+        type, mediaType, text, backgroundColor, fontStyle, mediaUrl, mediaThumbnail,
+        audioUrl, caption, mood, mode, privacy, privacyList, allowReplies, allowLikes,
+        allowComments, authorEmail, authorName
+    } = req.body;
+
+    if (!authorEmail || !authorName) {
+        console.log('❌ Missing author info');
+        return res.status(400).json({ error: 'Author email and name are required' });
+    }
+
+    if ((type === 'text' || mediaType === 'text') && !text) {
+        console.log('❌ Missing text for text status');
+        return res.status(400).json({ error: 'Text is required for text statuses' });
+    }
+
+    if ((type === 'image' || mediaType === 'image' || mediaType === 'video') && !mediaUrl) {
+        console.log('❌ Missing media for media status');
+        return res.status(400).json({ error: 'Media is required for media statuses' });
+    }
+
+    const now = Date.now();
+    const status = {
+        id: now.toString() + '-' + Math.random().toString(36).substr(2, 9),
+        authorEmail: sanitizeInput(authorEmail).toLowerCase(),
+        authorName: sanitizeInput(authorName),
+        type: type || 'text',
+        mediaType: mediaType || 'text',
+        text: text ? sanitizeInput(text) : null,
+        backgroundColor: backgroundColor || '#075e54',
+        fontStyle: fontStyle || 'normal',
+        mediaUrl: mediaUrl || null,
+        mediaThumbnail: mediaThumbnail || null,
+        audioUrl: audioUrl || null,
+        caption: caption ? sanitizeInput(caption) : null,
+        mood: mood || 'casual',
+        mode: mode || 'privacy',
+        privacy: privacy || 'contacts',
+        privacyList: privacyList || '[]',
+        allowReplies: allowReplies !== undefined ? allowReplies : 1,
+        allowLikes: allowLikes !== undefined ? allowLikes : 1,
+        allowComments: allowComments !== undefined ? allowComments : 1,
+        createdAt: now,
+        expiresAt: now + (24 * 60 * 60 * 1000) // 24 hours
+    };
+
+    try {
+        console.log('💾 Saving status to database...');
+        const savedStatus = await database.createStatus(status);
+        console.log('✅ Status saved, sending response:', savedStatus.id);
+        res.json(savedStatus);
+        console.log('✅ Response sent');
+    } catch (error) {
+        console.error('❌ Error creating status:', error);
+        res.status(500).json({ error: 'Failed to create status' });
+    }
+});
+
+// Mark status as viewed
+app.post('/api/statuses/:id/view', async (req, res) => {
+    const { id } = req.params;
+    const { viewerEmail } = req.body;
+
+    if (!viewerEmail) {
+        return res.status(400).json({ error: 'Viewer email is required' });
+    }
+
+    try {
+        await database.markStatusViewed(id, viewerEmail);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error marking status viewed:', error);
+        res.status(500).json({ error: 'Failed to mark status as viewed' });
+    }
+});
+
+// Delete a status
+app.delete('/api/statuses/:id', async (req, res) => {
+    const { id } = req.params;
+    const { authorEmail } = req.body;
+
+    if (!authorEmail) {
+        return res.status(400).json({ error: 'Author email is required' });
+    }
+
+    try {
+        await database.deleteStatus(id, authorEmail);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting status:', error);
+        res.status(500).json({ error: 'Failed to delete status' });
+    }
+});
+
+// Like a status
+app.post('/api/statuses/:id/like', async (req, res) => {
+    const { id } = req.params;
+    const { userEmail } = req.body;
+
+    if (!userEmail) {
+        return res.status(400).json({ error: 'User email is required' });
+    }
+
+    try {
+        const result = await database.likeStatus(id, userEmail);
+        res.json(result);
+    } catch (error) {
+        console.error('Error liking status:', error);
+        res.status(500).json({ error: 'Failed to like status' });
+    }
+});
+
+// Unlike a status
+app.post('/api/statuses/:id/unlike', async (req, res) => {
+    const { id } = req.params;
+    const { userEmail } = req.body;
+
+    if (!userEmail) {
+        return res.status(400).json({ error: 'User email is required' });
+    }
+
+    try {
+        const result = await database.unlikeStatus(id, userEmail);
+        res.json(result);
+    } catch (error) {
+        console.error('Error unliking status:', error);
+        res.status(500).json({ error: 'Failed to unlike status' });
+    }
+});
+
+// Comment on a status
+app.post('/api/statuses/:id/comment', async (req, res) => {
+    const { id } = req.params;
+    const { userEmail, userName, text } = req.body;
+
+    if (!userEmail || !userName || !text) {
+        return res.status(400).json({ error: 'User email, name, and comment text are required' });
+    }
+
+    try {
+        const result = await database.commentOnStatus(id, userEmail, userName, text);
+        res.json(result);
+    } catch (error) {
+        console.error('Error commenting on status:', error);
+        res.status(500).json({ error: 'Failed to comment on status' });
+    }
+});
+
+// Get comments for a status
+app.get('/api/statuses/:id/comments', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const comments = await database.getStatusComments(id);
+        res.json(comments);
+    } catch (error) {
+        console.error('Error getting status comments:', error);
+        res.status(500).json({ error: 'Failed to get comments' });
+    }
+});
+
+// Repost a status
+app.post('/api/statuses/:id/repost', async (req, res) => {
+    const { id } = req.params;
+    const { authorEmail, authorName } = req.body;
+
+    if (!authorEmail || !authorName) {
+        return res.status(400).json({ error: 'Author email and name are required' });
+    }
+
+    try {
+        const result = await database.repostStatus(id, authorEmail, authorName);
+        res.json(result);
+    } catch (error) {
+        console.error('Error reposting status:', error);
+        res.status(500).json({ error: 'Failed to repost status' });
     }
 });
 

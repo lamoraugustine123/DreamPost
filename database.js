@@ -128,7 +128,43 @@ class Database {
                 )
             `);
 
+            // Statuses table (WhatsApp/Facebook hybrid - 24h expiry)
+            // Drop and recreate to fix schema issues
+            this.db.run(`DROP TABLE IF EXISTS statuses`);
+            this.db.run(`
+                CREATE TABLE statuses (
+                    id TEXT PRIMARY KEY,
+                    authorEmail TEXT NOT NULL,
+                    authorName TEXT NOT NULL,
+                    type TEXT DEFAULT 'text',
+                    mediaType TEXT DEFAULT 'text',
+                    text TEXT,
+                    backgroundColor TEXT DEFAULT '#075e54',
+                    fontStyle TEXT DEFAULT 'normal',
+                    mediaUrl TEXT,
+                    mediaThumbnail TEXT,
+                    audioUrl TEXT,
+                    caption TEXT,
+                    mood TEXT DEFAULT 'casual',
+                    mode TEXT DEFAULT 'whatsapp',
+                    privacy TEXT DEFAULT 'contacts',
+                    privacyList TEXT DEFAULT '[]',
+                    allowReplies INTEGER DEFAULT 1,
+                    allowLikes INTEGER DEFAULT 1,
+                    allowComments INTEGER DEFAULT 1,
+                    viewedBy TEXT DEFAULT '[]',
+                    likes INTEGER DEFAULT 0,
+                    comments INTEGER DEFAULT 0,
+                    createdAt INTEGER NOT NULL,
+                    expiresAt INTEGER NOT NULL,
+                    FOREIGN KEY (authorEmail) REFERENCES users (email)
+                )
+            `);
+
             // Performance indexes
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_statuses_authorEmail ON statuses(authorEmail)');
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_statuses_expiresAt ON statuses(expiresAt)');
+            this.db.run('CREATE INDEX IF NOT EXISTS idx_statuses_createdAt ON statuses(createdAt DESC)');
             this.db.run('CREATE INDEX IF NOT EXISTS idx_posts_authorEmail ON posts(authorEmail)');
             this.db.run('CREATE INDEX IF NOT EXISTS idx_posts_createdAt ON posts(createdAt DESC)');
             this.db.run('CREATE INDEX IF NOT EXISTS idx_posts_public ON posts(public)');
@@ -1191,6 +1227,325 @@ class Database {
                     }
                     console.log(`✅ Updated cover image for ${email}`);
                     resolve({ success: true, changes: this.changes });
+                }
+            );
+        });
+    }
+
+    // ===== STATUS OPERATIONS =====
+
+    async createStatus(statusData) {
+        return new Promise((resolve, reject) => {
+            const {
+                id, authorEmail, authorName, type, mediaType, text, backgroundColor, fontStyle,
+                mediaUrl, mediaThumbnail, audioUrl, caption, mood, mode, privacy, privacyList,
+                allowReplies, allowLikes, allowComments, createdAt, expiresAt
+            } = statusData;
+            console.log('📝 Creating status:', { id, authorEmail, authorName, type, mediaType, text, privacy });
+            this.db.run(
+                `INSERT INTO statuses (id, authorEmail, authorName, type, mediaType, text, backgroundColor, fontStyle, mediaUrl, mediaThumbnail, audioUrl, caption, mood, mode, privacy, privacyList, allowReplies, allowLikes, allowComments, viewedBy, likes, comments, createdAt, expiresAt)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    id, authorEmail, authorName, type || 'text', mediaType || 'text', text,
+                    backgroundColor || '#075e54', fontStyle || 'normal', mediaUrl || null,
+                    mediaThumbnail || null, audioUrl || null, caption || null, mood || 'casual',
+                    mode || 'whatsapp', privacy || 'contacts', privacyList || '[]',
+                    allowReplies !== undefined ? allowReplies : 1, allowLikes !== undefined ? allowLikes : 1,
+                    allowComments !== undefined ? allowComments : 1, '[]', 0, 0, createdAt, expiresAt
+                ],
+                function(err) {
+                    if (err) {
+                        console.error('❌ Error creating status:', err);
+                        reject(err);
+                    } else {
+                        console.log('✅ Status created successfully:', id);
+                        resolve({
+                            id, authorEmail, authorName, type, mediaType, text, backgroundColor, fontStyle,
+                            mediaUrl, mediaThumbnail, audioUrl, caption, mood, mode, privacy, privacyList,
+                            allowReplies, allowLikes, allowComments, createdAt, expiresAt, viewedBy: [], likes: 0, comments: 0
+                        });
+                    }
+                }
+            );
+        });
+    }
+
+    async getActiveStatuses(userEmail = null) {
+        const now = Date.now();
+        console.log(`🕐 Current time (now): ${now}`);
+        return new Promise((resolve, reject) => {
+            this.db.all(
+                `SELECT s.*, u.profileImage, u.name as currentName
+                 FROM statuses s
+                 LEFT JOIN users u ON s.authorEmail = u.email
+                 WHERE s.expiresAt > ?
+                 ORDER BY s.createdAt DESC`,
+                [now],
+                (err, rows) => {
+                    if (err) {
+                        console.error('❌ Error fetching statuses:', err);
+                        reject(err);
+                    } else {
+                        console.log(`📊 Fetched ${rows.length} statuses from database`);
+                        if (rows.length > 0) {
+                            console.log(`📊 First status expiresAt: ${rows[0].expiresAt}, createdAt: ${rows[0].createdAt}`);
+                            console.log(`📊 Time until expiry: ${rows[0].expiresAt - now}ms`);
+                        }
+                        let statuses = (rows || []).map(row => ({
+                            ...row,
+                            viewedBy: row.viewedBy ? JSON.parse(row.viewedBy) : [],
+                            privacyList: row.privacyList ? JSON.parse(row.privacyList) : [],
+                            allowReplies: row.allowReplies === 1,
+                            allowLikes: row.allowLikes === 1,
+                            allowComments: row.allowComments === 1,
+                            authorName: row.currentName || row.authorName
+                        }));
+
+                        // Filter by privacy settings if userEmail is provided
+                        if (userEmail) {
+                            const beforeFilter = statuses.length;
+                            console.log(`📊 Before filter: ${statuses.length} statuses for user ${userEmail}`);
+                            statuses = statuses.filter(status => {
+                                // Always show own statuses
+                                if (status.authorEmail === userEmail) {
+                                    console.log(`✅ Showing own status: ${status.id} by ${status.authorEmail}`);
+                                    return true;
+                                }
+
+                                // Public statuses are visible to everyone
+                                if (status.privacy === 'public') return true;
+
+                                // Contact-only statuses - check if user is following the author
+                                if (status.privacy === 'contacts') {
+                                    return this.isFollowing(userEmail, status.authorEmail);
+                                }
+
+                                // Selected contacts - check if user is in privacyList
+                                if (status.privacy === 'selected') {
+                                    return status.privacyList.includes(userEmail);
+                                }
+
+                                return false;
+                            });
+                            console.log(`📊 Filtered from ${beforeFilter} to ${statuses.length} statuses for user ${userEmail}`);
+                        }
+
+                        resolve(statuses);
+                    }
+                }
+            );
+        });
+    }
+
+    async deleteExpiredStatuses() {
+        const now = Date.now();
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                `DELETE FROM statuses WHERE expiresAt <= ?`,
+                [now],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve({ success: true, deletedCount: this.changes });
+                }
+            );
+        });
+    }
+
+    async getStatusesByUser(email) {
+        const now = Date.now();
+        return new Promise((resolve, reject) => {
+            this.db.all(
+                `SELECT * FROM statuses WHERE authorEmail = ? AND expiresAt > ? ORDER BY createdAt DESC`,
+                [email, now],
+                (err, rows) => {
+                    if (err) reject(err);
+                    else {
+                        const statuses = (rows || []).map(row => ({
+                            ...row,
+                            viewedBy: row.viewedBy ? JSON.parse(row.viewedBy) : []
+                        }));
+                        resolve(statuses);
+                    }
+                }
+            );
+        });
+    }
+
+    async markStatusViewed(statusId, viewerEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.get('SELECT viewedBy FROM statuses WHERE id = ?', [statusId], (err, row) => {
+                if (err) return reject(err);
+                if (!row) return resolve({ changes: 0 });
+
+                const viewedBy = row.viewedBy ? JSON.parse(row.viewedBy) : [];
+                if (!viewedBy.includes(viewerEmail)) {
+                    viewedBy.push(viewerEmail);
+                    this.db.run(
+                        'UPDATE statuses SET viewedBy = ? WHERE id = ?',
+                        [JSON.stringify(viewedBy), statusId],
+                        function(err) {
+                            if (err) reject(err);
+                            else resolve({ changes: this.changes });
+                        }
+                    );
+                } else {
+                    resolve({ changes: 0 });
+                }
+            });
+        });
+    }
+
+    async deleteStatus(statusId, authorEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'DELETE FROM statuses WHERE id = ? AND authorEmail = ?',
+                [statusId, authorEmail],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve({ changes: this.changes });
+                }
+            );
+        });
+    }
+
+    async cleanupExpiredStatuses() {
+        const now = Date.now();
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'DELETE FROM statuses WHERE expiresAt <= ?',
+                [now],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve({ deleted: this.changes });
+                }
+            );
+        });
+    }
+
+    async likeStatus(statusId, userEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'UPDATE statuses SET likes = likes + 1 WHERE id = ?',
+                [statusId],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve({ success: true, likes: this.changes });
+                }
+            );
+        });
+    }
+
+    async unlikeStatus(statusId, userEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'UPDATE statuses SET likes = MAX(0, likes - 1) WHERE id = ?',
+                [statusId],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve({ success: true, likes: this.changes });
+                }
+            );
+        });
+    }
+
+    async commentOnStatus(statusId, userEmail, userName, text) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                'UPDATE statuses SET comments = comments + 1 WHERE id = ?',
+                [statusId],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve({ success: true, comments: this.changes });
+                }
+            );
+        });
+    }
+
+    async getStatusComments(statusId) {
+        return new Promise((resolve, reject) => {
+            this.db.all(
+                'SELECT comments FROM statuses WHERE id = ?',
+                [statusId],
+                function(err, rows) {
+                    if (err) reject(err);
+                    else resolve(rows[0] ? rows[0].comments : 0);
+                }
+            );
+        });
+    }
+
+    async repostStatus(originalStatusId, authorEmail, authorName) {
+        return new Promise((resolve, reject) => {
+            // First get the original status
+            this.db.get(
+                'SELECT * FROM statuses WHERE id = ?',
+                [originalStatusId],
+                (err, originalStatus) => {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    if (!originalStatus) {
+                        reject(new Error('Original status not found'));
+                        return;
+                    }
+
+                    // Create a new status as a repost
+                    const now = Date.now();
+                    const newStatus = {
+                        id: now.toString() + '-' + Math.random().toString(36).substr(2, 9),
+                        authorEmail: authorEmail,
+                        authorName: authorName,
+                        type: originalStatus.type,
+                        mediaType: originalStatus.mediaType,
+                        text: originalStatus.text,
+                        backgroundColor: originalStatus.backgroundColor,
+                        fontStyle: originalStatus.fontStyle,
+                        mediaUrl: originalStatus.mediaUrl,
+                        mediaThumbnail: originalStatus.mediaThumbnail,
+                        audioUrl: originalStatus.audioUrl,
+                        caption: `Reposted from ${originalStatus.authorName}`,
+                        mood: originalStatus.mood,
+                        mode: originalStatus.mode,
+                        privacy: originalStatus.privacy,
+                        privacyList: originalStatus.privacyList,
+                        allowReplies: originalStatus.allowReplies,
+                        allowLikes: originalStatus.allowLikes,
+                        allowComments: originalStatus.allowComments,
+                        viewedBy: '[]',
+                        likes: 0,
+                        comments: 0,
+                        createdAt: now,
+                        expiresAt: now + (24 * 60 * 60 * 1000)
+                    };
+
+                    this.db.run(
+                        `INSERT INTO statuses (id, authorEmail, authorName, type, mediaType, text, backgroundColor, fontStyle, mediaUrl, mediaThumbnail, audioUrl, caption, mood, mode, privacy, privacyList, allowReplies, allowLikes, allowComments, viewedBy, likes, comments, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            newStatus.id, newStatus.authorEmail, newStatus.authorName, newStatus.type, newStatus.mediaType,
+                            newStatus.text, newStatus.backgroundColor, newStatus.fontStyle, newStatus.mediaUrl, newStatus.mediaThumbnail,
+                            newStatus.audioUrl, newStatus.caption, newStatus.mood, newStatus.mode, newStatus.privacy,
+                            newStatus.privacyList, newStatus.allowReplies, newStatus.allowLikes, newStatus.allowComments,
+                            JSON.stringify(newStatus.viewedBy), newStatus.likes, newStatus.comments, newStatus.createdAt, newStatus.expiresAt
+                        ],
+                        function(err) {
+                            if (err) reject(err);
+                            else resolve(newStatus);
+                        }
+                    );
+                }
+            );
+        });
+    }
+
+    async isFollowing(followerEmail, followingEmail) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                'SELECT * FROM follows WHERE followerEmail = ? AND followingEmail = ?',
+                [followerEmail, followingEmail],
+                (err, row) => {
+                    if (err) reject(err);
+                    else resolve(!!row);
                 }
             );
         });
