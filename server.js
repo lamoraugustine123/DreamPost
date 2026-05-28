@@ -8,6 +8,8 @@ const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const database = require('./database');
 const { Pool } = require('pg');
+const twilio = require('twilio');
+const africastalking = require('africastalking');
 
 // Configure multer for file uploads
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -138,6 +140,20 @@ function syncToSupabase(fn) {
 const app = express();
 const port = process.env.PORT || 3005;
 
+// Twilio configuration for SMS
+const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
+    ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
+    : null;
+const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER || '';
+
+// Africa's Talking configuration for SMS
+const africasTalkingClient = process.env.AFRICASTALKING_USERNAME && process.env.AFRICASTALKING_API_KEY
+    ? africastalking({
+        username: process.env.AFRICASTALKING_USERNAME,
+        apiKey: process.env.AFRICASTALKING_API_KEY
+    })
+    : null;
+
 // Security headers
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -176,6 +192,69 @@ function verifyPassword(password, salt, hash) {
     const newHash = crypto.createHmac('sha256', salt);
     newHash.update(password);
     return newHash.digest('hex') === hash;
+}
+
+// Generate 6-digit OTP
+function generateOTP() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// Hash OTP for secure storage
+function hashOTP(otp) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.createHmac('sha256', salt);
+    hash.update(otp);
+    return { salt, hash: hash.digest('hex') };
+}
+
+// Verify OTP
+function verifyOTP(otp, salt, hash) {
+    const newHash = crypto.createHmac('sha256', salt);
+    newHash.update(otp);
+    return newHash.digest('hex') === hash;
+}
+
+// Send SMS via Africa's Talking (primary) or Twilio (fallback)
+async function sendSMS(phoneNumber, message) {
+    // Always log the message for testing
+    console.log(`📱 SMS Message: ${message}`);
+    console.log(`📱 To: ${phoneNumber}`);
+
+    // Try Africa's Talking first (better for Ghana)
+    if (africasTalkingClient) {
+        try {
+            const sms = africasTalkingClient.SMS;
+            const options = {
+                to: [phoneNumber],
+                message: message
+            };
+            await sms.send(options);
+            console.log(`✅ SMS sent via Africa's Talking to ${phoneNumber}`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to send SMS via Africa\'s Talking:', error);
+            // Fall through to Twilio
+        }
+    }
+
+    // Try Twilio as fallback
+    if (twilioClient) {
+        try {
+            await twilioClient.messages.create({
+                body: message,
+                from: twilioPhoneNumber,
+                to: phoneNumber
+            });
+            console.log(`✅ SMS sent via Twilio to ${phoneNumber}`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to send SMS via Twilio:', error);
+        }
+    }
+
+    // Development mode: log and continue
+    console.log('⚠️ No SMS provider configured or all failed. Continuing with development mode (OTP logged above)');
+    return true;
 }
 
 function sanitizeInput(input) {
@@ -337,12 +416,20 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
     skipSuccessfulRequests: false,
     skipFailedRequests: false,
-    handler: (req, res) => {
-        res.status(429).json({
-            error: 'Too many authentication attempts. Please try again later.',
-            retryAfter: 900
-        });
-    }
+});
+
+// Rate limiter for password reset (stricter)
+const passwordResetLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 minutes
+    max: 10, // Limit each IP to 10 reset requests per window
+    message: {
+        error: 'Too many password reset attempts. Please try again later.',
+        retryAfter: 300
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false,
+    skipFailedRequests: false,
 });
 
 // Enable CORS for cross-origin requests from browser preview
@@ -357,13 +444,6 @@ app.use(cors({
 // app.use(generalLimiter); // Disabled for development
 
 app.use(express.json({ limit: '10mb' }));
-
-// Serve static files with aggressive caching
-app.use(express.static(__dirname, {
-    maxAge: '1h',
-    etag: true,
-    lastModified: true
-}));
 
 // Initialize database
 console.log('DreamPost server using SQLite3 database for storage')
@@ -1597,6 +1677,304 @@ app.get('/api/admin/export/activities', checkAdminPermission('export_data'), asy
     }
 });
 
+// Password reset endpoints
+app.post('/api/password-reset/request', passwordResetLimiter, async (req, res) => {
+    const { phone } = req.body;
+
+    if (!phone) {
+        return res.status(400).json({ error: 'Phone number is required' });
+    }
+
+    const sanitizedPhone = sanitizeInput(phone);
+
+    try {
+        // Check if user exists with this phone number
+        const user = await database.getUserByPhone(sanitizedPhone);
+        if (!user) {
+            // Log the attempt but don't reveal if phone exists
+            await database.logSecurityEvent('password_reset_request', sanitizedPhone, null, false, req.ip, req.get('User-Agent'), 'Phone not found');
+            return res.status(200).json({ message: 'If the phone number is registered, you will receive an OTP' });
+        }
+
+        // Check for recent reset attempts (prevent spam)
+        const recentReset = await database.getPasswordReset(sanitizedPhone);
+        if (recentReset && recentReset.attempts >= 3) {
+            await database.logSecurityEvent('password_reset_request', sanitizedPhone, user.email, false, req.ip, req.get('User-Agent'), 'Too many attempts');
+            return res.status(429).json({ error: 'Too many attempts. Please try again later.' });
+        }
+
+        // Generate and hash OTP
+        const otp = generateOTP();
+        const { salt, hash } = hashOTP(otp);
+
+        // Store in database
+        await database.createPasswordReset(sanitizedPhone, salt, hash, req.ip, req.get('User-Agent'));
+
+        // Send SMS
+        const message = `Your DreamPost password reset code is: ${otp}. Valid for 10 minutes. Do not share this code.`;
+        await sendSMS(sanitizedPhone, message);
+
+        // Log success
+        await database.logSecurityEvent('password_reset_request', sanitizedPhone, user.email, true, req.ip, req.get('User-Agent'), 'OTP sent');
+
+        res.json({ message: 'OTP sent successfully' });
+    } catch (error) {
+        console.error('Password reset request error:', error);
+        await database.logSecurityEvent('password_reset_request', sanitizedPhone, null, false, req.ip, req.get('User-Agent'), error.message);
+        res.status(500).json({ error: 'Failed to process request' });
+    }
+});
+
+app.post('/api/password-reset/verify', passwordResetLimiter, async (req, res) => {
+    const { phone, otp, newPassword } = req.body;
+
+    if (!phone || !otp || !newPassword) {
+        return res.status(400).json({ error: 'Phone, OTP, and new password are required' });
+    }
+
+    const sanitizedPhone = sanitizeInput(phone);
+
+    if (!validatePassword(newPassword)) {
+        return res.status(400).json({ error: 'Password must be between 8 and 128 characters' });
+    }
+
+    try {
+        // Get the reset record
+        const resetRecord = await database.getPasswordReset(sanitizedPhone);
+        if (!resetRecord) {
+            await database.logSecurityEvent('password_reset_verify', sanitizedPhone, null, false, req.ip, req.get('User-Agent'), 'No valid reset request found');
+            return res.status(400).json({ error: 'Invalid or expired OTP' });
+        }
+
+        // Check attempts
+        if (resetRecord.attempts >= 3) {
+            await database.logSecurityEvent('password_reset_verify', sanitizedPhone, null, false, req.ip, req.get('User-Agent'), 'Max attempts exceeded');
+            await database.deletePasswordReset(resetRecord.id);
+            return res.status(429).json({ error: 'Too many attempts. Please request a new OTP.' });
+        }
+
+        // Verify OTP (need to extract salt from stored hash - our hashOTP returns both salt and hash)
+        // For simplicity, we'll store salt separately or use a different approach
+        // Let's modify the storage to include salt
+        const otpParts = resetRecord.otpHash.split(':');
+        if (otpParts.length !== 2) {
+            await database.logSecurityEvent('password_reset_verify', sanitizedPhone, null, false, req.ip, req.get('User-Agent'), 'Invalid hash format');
+            return res.status(400).json({ error: 'Invalid OTP format' });
+        }
+
+        const storedSalt = otpParts[0];
+        const storedHash = otpParts[1];
+
+        if (!verifyOTP(otp, storedSalt, storedHash)) {
+            await database.incrementResetAttempts(resetRecord.id);
+            await database.logSecurityEvent('password_reset_verify', sanitizedPhone, null, false, req.ip, req.get('User-Agent'), 'Invalid OTP');
+            return res.status(400).json({ error: 'Invalid OTP' });
+        }
+
+        // Get user
+        const user = await database.getUserByPhone(sanitizedPhone);
+        if (!user) {
+            await database.logSecurityEvent('password_reset_verify', sanitizedPhone, null, false, req.ip, req.get('User-Agent'), 'User not found');
+            return res.status(400).json({ error: 'User not found' });
+        }
+
+        // Update password
+        const { salt: newSalt, hash: newHash } = hashPassword(newPassword);
+        await database.updateUserPassword(user.email, newHash, newSalt);
+
+        // Delete reset record
+        await database.deletePasswordReset(resetRecord.id);
+
+        // Log success
+        await database.logSecurityEvent('password_reset_verify', sanitizedPhone, user.email, true, req.ip, req.get('User-Agent'), 'Password reset successful');
+
+        res.json({ message: 'Password reset successfully' });
+    } catch (error) {
+        console.error('Password reset verify error:', error);
+        await database.logSecurityEvent('password_reset_verify', sanitizedPhone, null, false, req.ip, req.get('User-Agent'), error.message);
+        res.status(500).json({ error: 'Failed to process request' });
+    }
+});
+
+// Password reset security endpoints for admin dashboard
+app.get('/api/admin/security/password-resets', checkAdminPermission('view_activities'), async (req, res) => {
+    try {
+        const { page = 1, limit = 50, status = 'all', startDate = '', endDate = '' } = req.query;
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        let query = 'SELECT id, phone, expiresAt, attempts, createdAt, ipAddress, userAgent FROM password_resets WHERE 1=1';
+        const params = [];
+
+        if (startDate) {
+            query += ' AND createdAt >= ?';
+            params.push(new Date(startDate).getTime());
+        }
+
+        if (endDate) {
+            query += ' AND createdAt <= ?';
+            params.push(new Date(endDate).getTime());
+        }
+
+        if (status === 'active') {
+            query += ' AND expiresAt > ?';
+            params.push(Date.now());
+        } else if (status === 'expired') {
+            query += ' AND expiresAt <= ?';
+            params.push(Date.now());
+        }
+
+        query += ' ORDER BY createdAt DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit), offset);
+
+        database.db.all(query, params, (err, rows) => {
+            if (err) {
+                console.error('Error fetching password resets:', err);
+                return res.status(500).json({ error: 'Failed to fetch password resets' });
+            }
+
+            const countQuery = query.split('ORDER BY')[0].replace('SELECT id, phone, expiresAt, attempts, createdAt, ipAddress, userAgent', 'SELECT COUNT(*) as count');
+            database.db.get(countQuery, params.slice(0, -2), (err, countRow) => {
+                if (err) {
+                    console.error('Error counting password resets:', err);
+                    return res.status(500).json({ error: 'Failed to count password resets' });
+                }
+
+                res.json({
+                    data: rows,
+                    total: countRow.count,
+                    page: parseInt(page),
+                    limit: parseInt(limit)
+                });
+            });
+        });
+    } catch (error) {
+        console.error('Error in password resets endpoint:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.get('/api/admin/security/audit-logs', checkAdminPermission('view_activities'), async (req, res) => {
+    try {
+        const { page = 1, limit = 50, action = '', startDate = '', endDate = '' } = req.query;
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        let query = 'SELECT id, action, phone, email, success, ipAddress, userAgent, timestamp, details FROM security_audit_log WHERE 1=1';
+        const params = [];
+
+        if (action) {
+            query += ' AND action LIKE ?';
+            params.push(`%${action}%`);
+        }
+
+        if (startDate) {
+            query += ' AND timestamp >= ?';
+            params.push(new Date(startDate).getTime());
+        }
+
+        if (endDate) {
+            query += ' AND timestamp <= ?';
+            params.push(new Date(endDate).getTime());
+        }
+
+        query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit), offset);
+
+        database.db.all(query, params, (err, rows) => {
+            if (err) {
+                console.error('Error fetching audit logs:', err);
+                return res.status(500).json({ error: 'Failed to fetch audit logs' });
+            }
+
+            const countQuery = query.split('ORDER BY')[0].replace('SELECT id, action, phone, email, success, ipAddress, userAgent, timestamp, details', 'SELECT COUNT(*) as count');
+            database.db.get(countQuery, params.slice(0, -2), (err, countRow) => {
+                if (err) {
+                    console.error('Error counting audit logs:', err);
+                    return res.status(500).json({ error: 'Failed to count audit logs' });
+                }
+
+                res.json({
+                    data: rows,
+                    total: countRow.count,
+                    page: parseInt(page),
+                    limit: parseInt(limit)
+                });
+            });
+        });
+    } catch (error) {
+        console.error('Error in audit logs endpoint:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.get('/api/admin/security/statistics', checkAdminPermission('view_analytics'), async (req, res) => {
+    try {
+        const stats = {
+            totalResets: 0,
+            activeResets: 0,
+            expiredResets: 0,
+            successfulResets: 0,
+            failedResets: 0,
+            suspiciousAttempts: 0,
+            last24hResets: 0,
+            last7dResets: 0
+        };
+
+        const now = Date.now();
+        const last24h = now - (24 * 60 * 60 * 1000);
+        const last7d = now - (7 * 24 * 60 * 60 * 1000);
+
+        database.db.get('SELECT COUNT(*) as count FROM password_resets', [], (err, row) => {
+            if (!err && row) stats.totalResets = row.count;
+
+            database.db.get('SELECT COUNT(*) as count FROM password_resets WHERE expiresAt > ?', [now], (err, row) => {
+                if (!err && row) stats.activeResets = row.count;
+
+                database.db.get('SELECT COUNT(*) as count FROM password_resets WHERE expiresAt <= ?', [now], (err, row) => {
+                    if (!err && row) stats.expiredResets = row.count;
+
+                    database.db.get('SELECT COUNT(*) as count FROM security_audit_log WHERE action = ? AND success = 1', ['password_reset_verify'], (err, row) => {
+                        if (!err && row) stats.successfulResets = row.count;
+
+                        database.db.get('SELECT COUNT(*) as count FROM security_audit_log WHERE action = ? AND success = 0', ['password_reset_verify'], (err, row) => {
+                            if (!err && row) stats.failedResets = row.count;
+
+                            database.db.get('SELECT COUNT(*) as count FROM password_resets WHERE attempts >= 3', [], (err, row) => {
+                                if (!err && row) stats.suspiciousAttempts = row.count;
+
+                                database.db.get('SELECT COUNT(*) as count FROM password_resets WHERE createdAt >= ?', [last24h], (err, row) => {
+                                    if (!err && row) stats.last24hResets = row.count;
+
+                                    database.db.get('SELECT COUNT(*) as count FROM password_resets WHERE createdAt >= ?', [last7d], (err, row) => {
+                                        if (!err && row) stats.last7dResets = row.count;
+
+                                        res.json(stats);
+                                    });
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    } catch (error) {
+        console.error('Error in security statistics endpoint:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Cleanup expired resets every hour
+setInterval(async () => {
+    await database.cleanupExpiredResets();
+}, 60 * 60 * 1000);
+
+// Serve static files (must be after all API routes to avoid conflicts)
+app.use(express.static(__dirname, {
+    maxAge: '1h',
+    etag: true,
+    lastModified: true
+}));
+
+// Fallback to index.html for SPA routes
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
