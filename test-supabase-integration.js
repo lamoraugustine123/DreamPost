@@ -200,7 +200,13 @@ async function testSupabaseIntegration() {
     }
 }
 
-const { hashPassword } = require('./utils/crypto');
+function hashPassword(password) {
+    const crypto = require('crypto');
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.createHmac('sha256', salt);
+    hash.update(password);
+    return { salt, hash: hash.digest('hex') };
+}
 
 // Run the test
 if (require.main === module) {

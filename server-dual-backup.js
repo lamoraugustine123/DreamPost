@@ -2,12 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const database = require('./database');
 const { Pool } = require('pg');
-const { sanitizeInput, validateEmail, validateName, validatePassword, validatePostContent } = require('./utils/validation');
-const { hashPassword, verifyPassword } = require('./utils/crypto');
-const { createWriteToBoth, createReadFromSupabase, createLogActivity } = require('./utils/dual-database');
-const { securityHeaders, createGeneralLimiter, createAuthLimiter } = require('./utils/middleware');
 
 // Supabase PostgreSQL Connection
 const supabasePool = new Pool({
@@ -18,16 +16,142 @@ const supabasePool = new Pool({
 const app = express();
 const port = process.env.PORT || 3005;
 
-// Dual Database Helpers (factory-created from shared utils)
-const writeToBoth = createWriteToBoth(database, supabasePool);
-const readFromSupabase = createReadFromSupabase(supabasePool);
-const logActivity = createLogActivity(writeToBoth);
+function hashPassword(password) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.createHmac('sha256', salt);
+    hash.update(password);
+    return { salt, hash: hash.digest('hex') };
+}
 
-app.use(securityHeaders);
+function verifyPassword(password, salt, hash) {
+    const newHash = crypto.createHmac('sha256', salt);
+    newHash.update(password);
+    return newHash.digest('hex') === hash;
+}
 
-// Rate limiters (shared factory)
-const generalLimiter = createGeneralLimiter();
-const authLimiter = createAuthLimiter();
+function sanitizeInput(input) {
+    if (typeof input !== 'string') return input;
+    return input.trim()
+        .replace(/[<>]/g, '') // Remove HTML tags
+        .replace(/javascript:/gi, '') // Remove javascript: protocol
+        .replace(/on\w+=/gi, ''); // Remove event handlers
+}
+
+function validateEmail(email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+}
+
+function validateName(name) {
+    return typeof name === 'string' && name.length >= 2 && name.length <= 50;
+}
+
+function validatePassword(password) {
+    return typeof password === 'string' && 
+           password.length >= 8 && 
+           password.length <= 128;
+}
+
+function validatePostContent(text) {
+    return typeof text === 'string' && 
+           text.length >= 1 && 
+           text.length <= 2000;
+}
+
+// Dual Database Helper Functions
+async function writeToBoth(sqliteQuery, supabaseQuery, sqliteParams = [], supabaseParams = []) {
+    const results = [];
+    
+    try {
+        // Write to SQLite
+        const sqliteResult = await database.run(sqliteQuery, sqliteParams);
+        results.push({ database: 'sqlite', success: true, data: sqliteResult });
+    } catch (error) {
+        console.error('SQLite write error:', error);
+        results.push({ database: 'sqlite', success: false, error: error.message });
+    }
+
+    try {
+        // Write to Supabase PostgreSQL
+        const supabaseResult = await supabasePool.query(supabaseQuery, supabaseParams);
+        results.push({ database: 'supabase', success: true, data: supabaseResult.rows[0] });
+    } catch (error) {
+        console.error('Supabase write error:', error);
+        results.push({ database: 'supabase', success: false, error: error.message });
+    }
+
+    return results;
+}
+
+async function readFromSupabase(query, params = []) {
+    try {
+        const result = await supabasePool.query(query, params);
+        return result.rows;
+    } catch (error) {
+        console.error('Supabase read error, falling back to SQLite:', error);
+        // Fallback to SQLite
+        return database.all(query.replace(/\$\d+/g, '?'), params);
+    }
+}
+
+async function logActivity(userId, userEmail, action, details = null, ipAddress = null, userAgent = null) {
+    const query = 'INSERT INTO activities (user_id, user_email, action, details, ip_address, user_agent, timestamp) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))';
+    const params = [userId, userEmail, action, details, ipAddress, userAgent];
+
+    return await writeToBoth(query, query, params, params);
+}
+
+// Security headers middleware
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+});
+
+// Advanced rate limiting with express-rate-limit
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per window
+    message: {
+        error: 'Too many requests from this IP. Please try again later.',
+        retryAfter: 900 // 15 minutes in seconds
+    },
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    skipSuccessfulRequests: false, // Count successful requests
+    skipFailedRequests: false, // Count failed requests
+    keyGenerator: (req, res) => {
+        return req.ip || req.connection.remoteAddress;
+    },
+    handler: (req, res) => {
+        res.status(429).json({
+            error: 'Too many requests. Please try again later.',
+            retryAfter: 900
+        });
+    }
+});
+
+// Stricter rate limiting for authentication endpoints
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // Limit each IP to 20 auth requests per window (increased for testing)
+    message: {
+        error: 'Too many authentication attempts. Please try again later.',
+        retryAfter: 900
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false,
+    skipFailedRequests: false,
+    handler: (req, res) => {
+        res.status(429).json({
+            error: 'Too many authentication attempts. Please try again later.',
+            retryAfter: 900
+        });
+    }
+});
 
 // Enable CORS for cross-origin requests from browser preview
 app.use(cors({
