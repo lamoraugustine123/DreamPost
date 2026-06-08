@@ -158,4 +158,8 @@ class Calculator {
     }
 }
 
-new Calculator();
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = Calculator;
+} else {
+    new Calculator();
+}
