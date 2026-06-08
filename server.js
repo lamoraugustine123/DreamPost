@@ -10,6 +10,11 @@ const database = require('./database');
 const { Pool } = require('pg');
 const twilio = require('twilio');
 const africastalking = require('africastalking');
+const { sanitizeInput, validateEmail, validateName, validatePassword, validatePostContent } = require('./utils/validation');
+const { hashPassword, verifyPassword, generateOTP, hashOTP, verifyOTP } = require('./utils/crypto');
+const { createWriteToBoth, createReadFromSupabase, createLogActivity } = require('./utils/dual-database');
+const { securityHeadersFull, createGeneralLimiter, createAuthLimiter } = require('./utils/middleware');
+const { sendExportResponse } = require('./utils/export');
 
 // Configure multer for file uploads
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -154,65 +159,7 @@ const africasTalkingClient = process.env.AFRICASTALKING_USERNAME && process.env.
     })
     : null;
 
-// Security headers
-app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    
-    // Content Security Policy
-    res.setHeader('Content-Security-Policy', 
-        "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' 'unsafe-hashes'; " +
-        "script-src-attr 'unsafe-inline'; " +
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-        "font-src 'self' https://fonts.gstatic.com; " +
-        "img-src 'self' data: https:; " +
-        "media-src 'self' data: https:; " +
-        "connect-src 'self'"
-    );
-    
-    // HSTS for production
-    if (process.env.NODE_ENV === 'production') {
-        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
-    }
-    
-    next();
-});
-
-function hashPassword(password) {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.createHmac('sha256', salt);
-    hash.update(password);
-    return { salt, hash: hash.digest('hex') };
-}
-
-function verifyPassword(password, salt, hash) {
-    const newHash = crypto.createHmac('sha256', salt);
-    newHash.update(password);
-    return newHash.digest('hex') === hash;
-}
-
-// Generate 6-digit OTP
-function generateOTP() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-// Hash OTP for secure storage
-function hashOTP(otp) {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.createHmac('sha256', salt);
-    hash.update(otp);
-    return { salt, hash: hash.digest('hex') };
-}
-
-// Verify OTP
-function verifyOTP(otp, salt, hash) {
-    const newHash = crypto.createHmac('sha256', salt);
-    newHash.update(otp);
-    return newHash.digest('hex') === hash;
-}
+app.use(securityHeadersFull);
 
 // Send SMS via Africa's Talking (primary) or Twilio (fallback)
 async function sendSMS(phoneNumber, message) {
@@ -257,166 +204,14 @@ async function sendSMS(phoneNumber, message) {
     return true;
 }
 
-function sanitizeInput(input) {
-    if (typeof input !== 'string') return input;
-    return input.trim()
-        .replace(/[<>]/g, '') // Remove HTML tags
-        .replace(/javascript:/gi, '') // Remove javascript: protocol
-        .replace(/on\w+=/gi, ''); // Remove event handlers
-}
+// Dual Database Helpers (factory-created from shared utils)
+const writeToBoth = createWriteToBoth(database, supabasePool);
+const readFromSupabase = createReadFromSupabase(supabasePool);
+const logActivity = createLogActivity(writeToBoth);
 
-function validateEmail(email) {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-}
-
-function validateName(name) {
-    return typeof name === 'string' && name.length >= 2 && name.length <= 50;
-}
-
-function validatePassword(password) {
-    return typeof password === 'string' && 
-           password.length >= 8 && 
-           password.length <= 128;
-}
-
-function validatePostContent(text) {
-    return typeof text === 'string' && 
-           text.length >= 1 && 
-           text.length <= 2000;
-}
-
-// Dual Database Helper Functions
-async function writeToBoth(sqliteQuery, supabaseQuery, sqliteParams = [], supabaseParams = [], postData = null) {
-    const results = [];
-    
-    try {
-        // Write to SQLite
-        const sqliteResult = await database.run(sqliteQuery, sqliteParams);
-        results.push({ database: 'sqlite', success: true, data: sqliteResult });
-    } catch (error) {
-        console.error('SQLite write error:', error);
-        results.push({ database: 'sqlite', success: false, error: error.message });
-    }
-
-    try {
-        // Write to Supabase PostgreSQL
-        const supabaseResult = await supabasePool.query(supabaseQuery, supabaseParams);
-        results.push({ database: 'supabase', success: true, data: supabaseResult.rows[0] });
-    } catch (error) {
-        console.error('Supabase write error:', error);
-        results.push({ database: 'supabase', success: false, error: error.message });
-        
-        // If Supabase fails and we have post data, save to pending_posts
-        if (postData) {
-            try {
-                await database.addPendingPost({
-                    ...postData,
-                    error: error.message,
-                    lastRetryAt: Date.now()
-                });
-                console.log('📝 Post saved to pending_posts for retry:', postData.id);
-            } catch (pendingError) {
-                console.error('Failed to save to pending_posts:', pendingError);
-            }
-        }
-    }
-
-    return results;
-}
-
-async function readFromSupabase(query, params = []) {
-    try {
-        const result = await supabasePool.query(query, params);
-        return result.rows;
-    } catch (error) {
-        console.error('Supabase read error, falling back to SQLite:', error);
-        // Fallback to SQLite - use the correct database file (dreams.db)
-        return new Promise((resolve, reject) => {
-            const sqlite3 = require('sqlite3').verbose();
-            const path = require('path');
-            const dbPath = path.join(__dirname, 'dreams.db');
-            const db = new sqlite3.Database(dbPath);
-            
-            const sqliteQuery = query.replace(/\$\d+/g, '?');
-            
-            if (sqliteQuery.toLowerCase().includes('select count(*)')) {
-                db.get(sqliteQuery, params, (err, row) => {
-                    db.close();
-                    if (err) {
-                        console.error('SQLite fallback error:', err);
-                        resolve([{}]); // Return empty result
-                    } else {
-                        resolve([row || { count: 0 }]);
-                    }
-                });
-            } else {
-                db.all(sqliteQuery, params, (err, rows) => {
-                    db.close();
-                    if (err) {
-                        console.error('SQLite fallback error:', err);
-                        resolve([]); // Return empty result
-                    } else {
-                        resolve(rows || []);
-                    }
-                });
-            }
-        });
-    }
-}
-
-async function logActivity(userId, userEmail, action, details = null, ipAddress = null, userAgent = null) {
-    const query = 'INSERT INTO activities (user_id, user_email, action, details, ip_address, user_agent, timestamp) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))';
-    const params = [userId, userEmail, action, details, ipAddress, userAgent];
-
-    return await writeToBoth(query, query, params, params);
-}
-
-// Security headers middleware
-app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    next();
-});
-
-// Advanced rate limiting with express-rate-limit
-const generalLimiter = rateLimit({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // Limit each IP to 100 requests per window
-    message: {
-        error: 'Too many requests from this IP. Please try again later.',
-        retryAfter: 900 // 15 minutes in seconds
-    },
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    skipSuccessfulRequests: false, // Count successful requests
-    skipFailedRequests: false, // Count failed requests
-    keyGenerator: (req, res) => {
-        return req.ip || req.connection.remoteAddress;
-    },
-    handler: (req, res) => {
-        res.status(429).json({
-            error: 'Too many requests. Please try again later.',
-            retryAfter: 900
-        });
-    }
-});
-
-// Stricter rate limiting for authentication endpoints
-const authLimiter = rateLimit({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-    max: parseInt(process.env.AUTH_RATE_LIMIT_MAX_REQUESTS) || 20, // Limit each IP to 20 auth requests per window
-    message: {
-        error: 'Too many authentication attempts. Please try again later.',
-        retryAfter: 900
-    },
-    standardHeaders: true,
-    legacyHeaders: false,
-    skipSuccessfulRequests: false,
-    skipFailedRequests: false,
-});
+// Rate limiters (shared factory)
+const generalLimiter = createGeneralLimiter();
+const authLimiter = createAuthLimiter();
 
 // Rate limiter for password reset (stricter)
 const passwordResetLimiter = rateLimit({
@@ -1637,17 +1432,7 @@ app.get('/api/admin/export/clients', checkAdminPermission('export_data'), async 
         const { format = 'csv', status = 'all', role = 'all' } = req.query;
         const exportData = await database.exportClients({ format, status, role });
         
-        if (format === 'csv') {
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', 'attachment; filename=clients.csv');
-            res.send(exportData);
-        } else if (format === 'json') {
-            res.setHeader('Content-Type', 'application/json');
-            res.setHeader('Content-Disposition', 'attachment; filename=clients.json');
-            res.json(exportData);
-        } else {
-            res.status(400).json({ error: 'Unsupported export format' });
-        }
+        sendExportResponse(res, format, exportData, 'clients');
     } catch (error) {
         console.error('Error exporting client data:', error);
         res.status(500).json({ error: 'Failed to export client data' });
@@ -1660,17 +1445,7 @@ app.get('/api/admin/export/activities', checkAdminPermission('export_data'), asy
         const { format = 'csv', startDate = '', endDate = '', action = '' } = req.query;
         const exportData = await database.exportActivities({ format, startDate, endDate, action });
         
-        if (format === 'csv') {
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', 'attachment; filename=activities.csv');
-            res.send(exportData);
-        } else if (format === 'json') {
-            res.setHeader('Content-Type', 'application/json');
-            res.setHeader('Content-Disposition', 'attachment; filename=activities.json');
-            res.json(exportData);
-        } else {
-            res.status(400).json({ error: 'Unsupported export format' });
-        }
+        sendExportResponse(res, format, exportData, 'activities');
     } catch (error) {
         console.error('Error exporting activity data:', error);
         res.status(500).json({ error: 'Failed to export activity data' });
