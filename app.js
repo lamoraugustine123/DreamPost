@@ -5086,6 +5086,10 @@ function initSettings() {
     if (elements.updatePasswordBtn) {
         elements.updatePasswordBtn.addEventListener('click', handleUpdatePassword);
     }
+    const modalUpdatePasswordBtn = document.getElementById('modalUpdatePasswordBtn');
+    if (modalUpdatePasswordBtn) {
+        modalUpdatePasswordBtn.addEventListener('click', handleModalPasswordUpdate);
+    }
     if (elements.updateProfileBtn) {
         console.log('🔧 Adding event listener to updateProfileBtn');
         elements.updateProfileBtn.addEventListener('click', handleUpdateProfile);
@@ -5178,7 +5182,7 @@ function saveSettings() {
     showToast('Settings saved successfully!');
 }
 
-function handleUpdatePassword() {
+async function handleUpdatePassword() {
     const currentPassword = elements.currentPassword.value;
     const newPassword = elements.newPassword.value;
     const confirmPassword = elements.confirmNewPassword.value;
@@ -5195,13 +5199,90 @@ function handleUpdatePassword() {
         return showToast('Password must be at least 8 characters long');
     }
 
-    // Here you would typically make an API call to update the password
-    showToast('Password updated successfully!');
-    
+    if (!currentUser || !currentUser.email) {
+        return showToast('You must be logged in to change your password');
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/change-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email: currentUser.email,
+                currentPassword,
+                newPassword
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return showToast(data.error || 'Failed to change password');
+        }
+
+        showToast('Password updated successfully!');
+    } catch (error) {
+        console.error('Password change error:', error);
+        return showToast('Network error. Please try again.');
+    }
+
     // Clear password fields
     elements.currentPassword.value = '';
     elements.newPassword.value = '';
     elements.confirmNewPassword.value = '';
+}
+
+async function handleModalPasswordUpdate() {
+    const currentPasswordEl = document.getElementById('modalCurrentPassword');
+    const newPasswordEl = document.getElementById('modalNewPassword');
+    const confirmPasswordEl = document.getElementById('modalConfirmPassword');
+
+    const currentPassword = currentPasswordEl.value;
+    const newPassword = newPasswordEl.value;
+    const confirmPassword = confirmPasswordEl.value;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+        return showToast('Please fill in all password fields');
+    }
+
+    if (newPassword !== confirmPassword) {
+        return showToast('New passwords do not match');
+    }
+
+    if (newPassword.length < 8) {
+        return showToast('Password must be at least 8 characters long');
+    }
+
+    if (!currentUser || !currentUser.email) {
+        return showToast('You must be logged in to change your password');
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/change-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email: currentUser.email,
+                currentPassword,
+                newPassword
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return showToast(data.error || 'Failed to change password');
+        }
+
+        showToast('Password updated successfully!');
+    } catch (error) {
+        console.error('Password change error:', error);
+        return showToast('Network error. Please try again.');
+    }
+
+    currentPasswordEl.value = '';
+    newPasswordEl.value = '';
+    confirmPasswordEl.value = '';
 }
 
 async function handleUpdateProfile() {
