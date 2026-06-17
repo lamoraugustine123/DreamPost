@@ -720,7 +720,7 @@ app.post('/api/posts', async (req, res) => {
         return res.status(400).json({ error: 'Invalid author email format.' });
     }
     
-    const validMoods = ['Joyful', 'Determined', 'Peaceful', 'Inspired', 'Confident', 'Magical', 'Mysterious', 'Adventurous', 'Romantic', 'Dark'];
+    const validMoods = ['Joyful', 'Determined', 'Peaceful', 'Inspired', 'Confident', 'Magical', 'Mysterious', 'Adventurous', 'Romantic', 'Dark', 'Fantasy', 'Sci-Fi', 'Horror'];
     if (!validMoods.includes(sanitizedMood)) {
         return res.status(400).json({ error: 'Invalid mood selection.' });
     }
