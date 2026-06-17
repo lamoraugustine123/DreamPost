@@ -281,12 +281,10 @@ const dataCache = {
 // Instant sidebar stats update (no API wait)
 function updateSidebarStatsInstant(stats) {
     const sidebarPostCount = document.getElementById('sidebarPostCount');
-    const sidebarLikeCount = document.getElementById('sidebarLikeCount');
     const sidebarFollowerCount = document.getElementById('sidebarFollowerCount');
     const sidebarFollowingCount = document.getElementById('sidebarFollowingCount');
     
     if (sidebarPostCount) sidebarPostCount.textContent = stats.postCount || 0;
-    if (sidebarLikeCount) sidebarLikeCount.textContent = stats.totalLikes || 0;
     if (sidebarFollowerCount) sidebarFollowerCount.textContent = stats.followerCount || 0;
     if (sidebarFollowingCount) sidebarFollowingCount.textContent = stats.followingCount || 0;
 }
@@ -7121,7 +7119,6 @@ async function loadUserStatisticsModal() {
             profileModalFollowingCount: document.getElementById('profileModalFollowingCount'),
             profileModalLikeCount: document.getElementById('profileModalLikeCount'),
             sidebarPostCount: document.getElementById('sidebarPostCount'),
-            sidebarLikeCount: document.getElementById('sidebarLikeCount'),
             sidebarFollowerCount: document.getElementById('sidebarFollowerCount'),
             sidebarFollowingCount: document.getElementById('sidebarFollowingCount')
         };
@@ -7133,7 +7130,6 @@ async function loadUserStatisticsModal() {
         animateNumber(elements.profileModalLikeCount, totalLikes);
         
         if (elements.sidebarPostCount) elements.sidebarPostCount.textContent = postCount;
-        if (elements.sidebarLikeCount) elements.sidebarLikeCount.textContent = totalLikes;
         if (elements.sidebarFollowerCount) elements.sidebarFollowerCount.textContent = followerCount;
         if (elements.sidebarFollowingCount) elements.sidebarFollowingCount.textContent = followingCount;
         
@@ -7343,15 +7339,9 @@ async function handleEditProfileSubmit(event) {
 function updateSidebarUserInfo() {
     const sidebarUserName = document.getElementById('sidebarUserName');
     const sidebarUserAvatar = document.getElementById('sidebarUserAvatar');
-    const sidebarUserHandle = document.getElementById('sidebarUserHandle');
     
     if (sidebarUserName) {
         sidebarUserName.textContent = currentUser.name || 'User';
-    }
-
-    if (sidebarUserHandle) {
-        const handle = currentUser.email ? '@' + currentUser.email.split('@')[0] : '@user';
-        sidebarUserHandle.textContent = handle;
     }
     
     if (sidebarUserAvatar) {
@@ -7640,7 +7630,6 @@ async function loadUserStatistics() {
             profileFollowingCount: document.getElementById('profileFollowingCount'),
             profileLikeCount: document.getElementById('profileLikeCount'),
             sidebarPostCount: document.getElementById('sidebarPostCount'),
-            sidebarLikeCount: document.getElementById('sidebarLikeCount'),
             sidebarFollowerCount: document.getElementById('sidebarFollowerCount'),
             sidebarFollowingCount: document.getElementById('sidebarFollowingCount')
         };
@@ -7650,7 +7639,6 @@ async function loadUserStatistics() {
         if (elements.profileFollowingCount) elements.profileFollowingCount.textContent = followingCount;
         if (elements.profileLikeCount) elements.profileLikeCount.textContent = totalLikes;
         if (elements.sidebarPostCount) elements.sidebarPostCount.textContent = postCount;
-        if (elements.sidebarLikeCount) elements.sidebarLikeCount.textContent = totalLikes;
         if (elements.sidebarFollowerCount) elements.sidebarFollowerCount.textContent = followerCount;
         if (elements.sidebarFollowingCount) elements.sidebarFollowingCount.textContent = followingCount;
         
@@ -8031,13 +8019,6 @@ function updateSidebarUserInfo() {
     if (sidebarUserName) {
         sidebarUserName.textContent = currentUser.name;
         console.log('✅ Sidebar user name updated:', currentUser.name);
-    }
-
-    // Update sidebar user handle
-    const sidebarUserHandle = document.getElementById('sidebarUserHandle');
-    if (sidebarUserHandle) {
-        const handle = currentUser.email ? '@' + currentUser.email.split('@')[0] : '@user';
-        sidebarUserHandle.textContent = handle;
     }
     
     // Update sidebar user avatar with initials

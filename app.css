@@ -873,47 +873,6 @@ select {
     font-size: var(--font-size-sm);
 }
 
-/* Sidebar Stats Grid */
-.user-stats-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    width: 100%;
-    margin-top: var(--spacing-md);
-}
-
-.stat-box {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 10px 6px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: var(--radius-md);
-    transition: all 0.2s ease;
-}
-
-.stat-box:hover {
-    background: rgba(0, 212, 255, 0.08);
-    border-color: rgba(0, 212, 255, 0.2);
-    transform: translateY(-2px);
-}
-
-.stat-box strong {
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--text);
-    line-height: 1.2;
-}
-
-.stat-box span {
-    font-size: 11px;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-top: 2px;
-}
-
 .edit-profile-btn {
     width: 100%;
     padding: var(--spacing-sm) var(--spacing-md);
