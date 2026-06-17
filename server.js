@@ -8,6 +8,8 @@ const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const database = require('./database');
 const { Pool } = require('pg');
+const twilio = require('twilio');
+const africastalking = require('africastalking');
 
 // Configure multer for file uploads
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -138,10 +140,19 @@ function syncToSupabase(fn) {
 const app = express();
 const port = process.env.PORT || 3005;
 
-// TextBee SMS Gateway configuration
-const TEXTBEE_API_URL = process.env.TEXTBEE_API_URL || 'https://api.textbee.dev';
-const TEXTBEE_API_KEY = process.env.TEXTBEE_API_KEY || '';
-const TEXTBEE_DEVICE_ID = process.env.TEXTBEE_DEVICE_ID || '';
+// Twilio configuration for SMS
+const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
+    ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
+    : null;
+const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER || '';
+
+// Africa's Talking configuration for SMS
+const africasTalkingClient = process.env.AFRICASTALKING_USERNAME && process.env.AFRICASTALKING_API_KEY
+    ? africastalking({
+        username: process.env.AFRICASTALKING_USERNAME,
+        apiKey: process.env.AFRICASTALKING_API_KEY
+    })
+    : null;
 
 // Security headers
 app.use((req, res, next) => {
@@ -203,41 +214,46 @@ function verifyOTP(otp, salt, hash) {
     return newHash.digest('hex') === hash;
 }
 
-// Send SMS via TextBee Gateway
+// Send SMS via Africa's Talking (primary) or Twilio (fallback)
 async function sendSMS(phoneNumber, message) {
+    // Always log the message for testing
     console.log(`📱 SMS Message: ${message}`);
     console.log(`📱 To: ${phoneNumber}`);
 
-    if (TEXTBEE_API_KEY && TEXTBEE_DEVICE_ID) {
+    // Try Africa's Talking first (better for Ghana)
+    if (africasTalkingClient) {
         try {
-            const response = await fetch(
-                `${TEXTBEE_API_URL}/api/v1/gateway/devices/${TEXTBEE_DEVICE_ID}/send-sms`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-api-key': TEXTBEE_API_KEY,
-                    },
-                    body: JSON.stringify({
-                        recipients: [phoneNumber],
-                        message: message,
-                    }),
-                }
-            );
-
-            if (!response.ok) {
-                const errorBody = await response.text();
-                throw new Error(`TextBee API error ${response.status}: ${errorBody}`);
-            }
-
-            console.log(`✅ SMS sent via TextBee to ${phoneNumber}`);
+            const sms = africasTalkingClient.SMS;
+            const options = {
+                to: [phoneNumber],
+                message: message
+            };
+            await sms.send(options);
+            console.log(`✅ SMS sent via Africa's Talking to ${phoneNumber}`);
             return true;
         } catch (error) {
-            console.error('❌ Failed to send SMS via TextBee:', error);
+            console.error('❌ Failed to send SMS via Africa\'s Talking:', error);
+            // Fall through to Twilio
         }
     }
 
-    console.log('⚠️ TextBee not configured or SMS failed. Continuing with development mode (OTP logged above)');
+    // Try Twilio as fallback
+    if (twilioClient) {
+        try {
+            await twilioClient.messages.create({
+                body: message,
+                from: twilioPhoneNumber,
+                to: phoneNumber
+            });
+            console.log(`✅ SMS sent via Twilio to ${phoneNumber}`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to send SMS via Twilio:', error);
+        }
+    }
+
+    // Development mode: log and continue
+    console.log('⚠️ No SMS provider configured or all failed. Continuing with development mode (OTP logged above)');
     return true;
 }
 
