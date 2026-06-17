@@ -56,7 +56,6 @@
                 <label>Email<input id="loginEmail" type="email" placeholder="you@example.com"></label>
                 <label>Password<input id="loginPassword" type="password" placeholder="••••••••"></label>
                 <button id="loginBtn" class="primary-btn">Log in</button>
-                <p class="small-text"><a href="#" id="forgotPasswordLink" class="forgot-link">Forgot Password?</a></p>
                 <p class="small-text">No account yet? Sign up above.</p>
             </div>
             <div class="auth-panel hidden" id="signupPanel">
@@ -79,22 +78,6 @@
                 <div id="signupError" class="error-message hidden"></div>
                 <button id="signupBtn" class="primary-btn">Sign up</button>
                 <p class="small-text">Already have an account? Log in above.</p>
-            </div>
-            <div class="auth-panel hidden" id="resetPanel">
-                <h2>Reset Password</h2>
-                <p class="small-text">Enter your phone number to receive a reset code via SMS.</p>
-                <div id="resetStep1">
-                    <label>Phone Number<input id="resetPhone" type="tel" placeholder="0256422780" maxlength="20"></label>
-                    <button id="resetRequestBtn" class="primary-btn">Send Reset Code</button>
-                </div>
-                <div id="resetStep2" class="hidden">
-                    <label>Enter OTP Code<input id="resetOtp" type="text" placeholder="6-digit code" maxlength="6"></label>
-                    <label>New Password<input id="resetNewPassword" type="password" placeholder="••••••••" maxlength="128"></label>
-                    <label>Confirm New Password<input id="resetConfirmPassword" type="password" placeholder="••••••••" maxlength="128"></label>
-                    <button id="resetVerifyBtn" class="primary-btn">Reset Password</button>
-                </div>
-                <div id="resetMessage" class="reset-message hidden"></div>
-                <p class="small-text"><a href="#" id="backToLoginLink" class="forgot-link">Back to Login</a></p>
             </div>
         </div>
     </div>

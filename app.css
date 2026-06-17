@@ -3224,36 +3224,6 @@ textarea {
     margin-top: 8px;
 }
 
-.forgot-link {
-    color: var(--accent, #00d4ff);
-    text-decoration: none;
-    transition: opacity 0.2s;
-}
-
-.forgot-link:hover {
-    opacity: 0.8;
-    text-decoration: underline;
-}
-
-.reset-message {
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    text-align: center;
-}
-
-.reset-message.success {
-    background: rgba(0, 200, 100, 0.15);
-    color: #00c864;
-    border: 1px solid rgba(0, 200, 100, 0.3);
-}
-
-.reset-message.error {
-    background: rgba(255, 80, 80, 0.15);
-    color: #ff5050;
-    border: 1px solid rgba(255, 80, 80, 0.3);
-}
-
 .auth-panel .primary-btn {
     width: 100%;
     padding: 14px 20px;
