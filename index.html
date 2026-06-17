@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <link rel="stylesheet" href="app.css">
+    <link rel="stylesheet" href="app.css?v=3">
 </head>
 <body>
     <!-- Offline Status Indicator -->
@@ -56,7 +56,7 @@
                 <label>Email<input id="loginEmail" type="email" placeholder="you@example.com"></label>
                 <label>Password<input id="loginPassword" type="password" placeholder="••••••••"></label>
                 <button id="loginBtn" class="primary-btn">Log in</button>
-                <p class="small-text"><a href="#" id="forgotPasswordLink" class="forgot-link">Forgot Password?</a></p>
+                <p class="small-text"><a href="#" id="forgotPasswordLink" class="forgot-link" onclick="event.preventDefault(); if(typeof switchAuthTab==='function') switchAuthTab('reset');">Forgot Password?</a></p>
                 <p class="small-text">No account yet? Sign up above.</p>
             </div>
             <div class="auth-panel hidden" id="signupPanel">
@@ -94,7 +94,7 @@
                     <button id="resetVerifyBtn" class="primary-btn">Reset Password</button>
                 </div>
                 <div id="resetMessage" class="reset-message hidden"></div>
-                <p class="small-text"><a href="#" id="backToLoginLink" class="forgot-link">Back to Login</a></p>
+                <p class="small-text"><a href="#" id="backToLoginLink" class="forgot-link" onclick="event.preventDefault(); if(typeof switchAuthTab==='function') switchAuthTab('login');">Back to Login</a></p>
             </div>
         </div>
     </div>
@@ -203,23 +203,25 @@
                         <div class="user-avatar-large" id="sidebarUserAvatar">DP</div>
                         <div class="user-info">
                             <div class="user-name" id="sidebarUserName">User Name</div>
-                            <div class="user-stats">
-                                <span class="stat-item">
-                                    <strong id="sidebarPostCount">0</strong>
-                                    <span>Posts</span>
-                                </span>
-                                <span class="stat-item">
-                                    <strong id="sidebarFollowerCount">0</strong>
-                                    <span>Followers</span>
-                                </span>
-                                <span class="stat-item">
-                                    <strong id="sidebarFollowingCount">0</strong>
-                                    <span>Following</span>
-                                </span>
-                            </div>
+                            <div class="user-handle" id="sidebarUserHandle">@username</div>
                         </div>
-                        <div class="profile-arrow">
-                            <span>→</span>
+                        <div class="user-stats-grid">
+                            <div class="stat-box">
+                                <strong id="sidebarPostCount">0</strong>
+                                <span>Posts</span>
+                            </div>
+                            <div class="stat-box">
+                                <strong id="sidebarLikeCount">0</strong>
+                                <span>Likes</span>
+                            </div>
+                            <div class="stat-box">
+                                <strong id="sidebarFollowerCount">0</strong>
+                                <span>Followers</span>
+                            </div>
+                            <div class="stat-box">
+                                <strong id="sidebarFollowingCount">0</strong>
+                                <span>Following</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1677,6 +1679,6 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=3"></script>
 </body>
 </html>
