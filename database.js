@@ -4,8 +4,8 @@ const path = require('path');
 const dbPath = path.join(__dirname, 'dreams.db');
 
 class Database {
-    constructor() {
-        this.db = new sqlite3.Database(dbPath);
+    constructor(customPath) {
+        this.db = new sqlite3.Database(customPath || dbPath);
         this._stmtCache = {};
         this.init();
     }
@@ -1691,4 +1691,6 @@ class Database {
     }
 }
 
-module.exports = new Database();
+const instance = new Database();
+instance.Database = Database;
+module.exports = instance;

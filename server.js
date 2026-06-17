@@ -170,38 +170,18 @@ app.use((req, res, next) => {
     next();
 });
 
-function hashPassword(password) {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.createHmac('sha256', salt);
-    hash.update(password);
-    return { salt, hash: hash.digest('hex') };
-}
-
-function verifyPassword(password, salt, hash) {
-    const newHash = crypto.createHmac('sha256', salt);
-    newHash.update(password);
-    return newHash.digest('hex') === hash;
-}
-
-// Generate 6-digit OTP
-function generateOTP() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-// Hash OTP for secure storage
-function hashOTP(otp) {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.createHmac('sha256', salt);
-    hash.update(otp);
-    return { salt, hash: hash.digest('hex') };
-}
-
-// Verify OTP
-function verifyOTP(otp, salt, hash) {
-    const newHash = crypto.createHmac('sha256', salt);
-    newHash.update(otp);
-    return newHash.digest('hex') === hash;
-}
+const {
+    hashPassword,
+    verifyPassword,
+    generateOTP,
+    hashOTP,
+    verifyOTP,
+    sanitizeInput,
+    validateEmail,
+    validateName,
+    validatePassword,
+    validatePostContent,
+} = require('./utils');
 
 // Send SMS via TextBee Gateway
 async function sendSMS(phoneNumber, message) {
@@ -239,35 +219,6 @@ async function sendSMS(phoneNumber, message) {
 
     console.log('⚠️ TextBee not configured or SMS failed. Continuing with development mode (OTP logged above)');
     return true;
-}
-
-function sanitizeInput(input) {
-    if (typeof input !== 'string') return input;
-    return input.trim()
-        .replace(/[<>]/g, '') // Remove HTML tags
-        .replace(/javascript:/gi, '') // Remove javascript: protocol
-        .replace(/on\w+=/gi, ''); // Remove event handlers
-}
-
-function validateEmail(email) {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-}
-
-function validateName(name) {
-    return typeof name === 'string' && name.length >= 2 && name.length <= 50;
-}
-
-function validatePassword(password) {
-    return typeof password === 'string' && 
-           password.length >= 8 && 
-           password.length <= 128;
-}
-
-function validatePostContent(text) {
-    return typeof text === 'string' && 
-           text.length >= 1 && 
-           text.length <= 2000;
 }
 
 // Dual Database Helper Functions

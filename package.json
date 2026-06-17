@@ -7,7 +7,8 @@
     "start:dual": "node server-dual.js",
     "start:sync": "node start-server.js",
     "worker": "node sync-worker.js",
-    "setup:supabase": "node setup-supabase.js"
+    "setup:supabase": "node setup-supabase.js",
+    "test": "jest --verbose"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
@@ -18,5 +19,9 @@
     "node-fetch": "^3.3.2",
     "pg": "^8.20.0",
     "sqlite3": "^5.1.6"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1"
   }
 }
