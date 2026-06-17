@@ -5709,7 +5709,7 @@ function checkPasswordStrength() {
     return requirements;
 }
 
-function handleSecurityPasswordUpdate() {
+async function handleSecurityPasswordUpdate() {
     const currentPassword = elements.securityCurrentPassword.value;
     const newPassword = elements.securityNewPassword.value;
     const confirmPassword = elements.securityConfirmPassword.value;
@@ -5728,12 +5728,34 @@ function handleSecurityPasswordUpdate() {
     if (!allMet) {
         return showToast('Password does not meet all security requirements');
     }
-    
-    // Update password (in real app would make API call)
-    showToast('Password updated successfully!');
-    
-    // Log security event
-    logSecurityEvent('password-change', 'Password changed');
+
+    if (!currentUser || !currentUser.email) {
+        return showToast('You must be logged in to change your password');
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/change-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email: currentUser.email,
+                currentPassword,
+                newPassword
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return showToast(data.error || 'Failed to change password');
+        }
+
+        showToast('Password updated successfully!');
+        logSecurityEvent('password-change', 'Password changed');
+    } catch (error) {
+        console.error('Password change error:', error);
+        return showToast('Network error. Please try again.');
+    }
     
     // Clear fields
     elements.securityCurrentPassword.value = '';
