@@ -161,35 +161,6 @@ class Database {
                 )
             `);
 
-            // Password resets table
-            this.db.run(`
-                CREATE TABLE IF NOT EXISTS password_resets (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    phone TEXT NOT NULL,
-                    otpHash TEXT NOT NULL,
-                    expiresAt INTEGER NOT NULL,
-                    attempts INTEGER DEFAULT 0,
-                    createdAt INTEGER NOT NULL,
-                    ipAddress TEXT,
-                    userAgent TEXT
-                )
-            `);
-
-            // Security audit log table
-            this.db.run(`
-                CREATE TABLE IF NOT EXISTS security_audit_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    event TEXT NOT NULL,
-                    phone TEXT,
-                    email TEXT,
-                    success INTEGER NOT NULL,
-                    ipAddress TEXT,
-                    userAgent TEXT,
-                    details TEXT,
-                    createdAt INTEGER NOT NULL
-                )
-            `);
-
             // Performance indexes
             this.db.run('CREATE INDEX IF NOT EXISTS idx_statuses_authorEmail ON statuses(authorEmail)');
             this.db.run('CREATE INDEX IF NOT EXISTS idx_statuses_expiresAt ON statuses(expiresAt)');
@@ -203,9 +174,6 @@ class Database {
             this.db.run('CREATE INDEX IF NOT EXISTS idx_follows_followerEmail ON follows(followerEmail)');
             this.db.run('CREATE INDEX IF NOT EXISTS idx_follows_followingEmail ON follows(followingEmail)');
             this.db.run('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
-            this.db.run('CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone)');
-            this.db.run('CREATE INDEX IF NOT EXISTS idx_password_resets_phone ON password_resets(phone)');
-            this.db.run('CREATE INDEX IF NOT EXISTS idx_security_audit_log_createdAt ON security_audit_log(createdAt DESC)');
         });
     }
 
@@ -1578,108 +1546,6 @@ class Database {
                 (err, row) => {
                     if (err) reject(err);
                     else resolve(!!row);
-                }
-            );
-        });
-    }
-
-    // Password reset operations
-    async getUserByPhone(phone) {
-        return new Promise((resolve, reject) => {
-            this.db.get(
-                'SELECT * FROM users WHERE phone = ?',
-                [phone],
-                (err, row) => {
-                    if (err) reject(err);
-                    else resolve(row);
-                }
-            );
-        });
-    }
-
-    async createPasswordReset(phone, salt, hash, ipAddress, userAgent) {
-        return new Promise((resolve, reject) => {
-            this.db.run(
-                'DELETE FROM password_resets WHERE phone = ?',
-                [phone],
-                (err) => {
-                    if (err) return reject(err);
-                    const otpHash = `${salt}:${hash}`;
-                    const now = Date.now();
-                    const expiresAt = now + 10 * 60 * 1000;
-                    this.db.run(
-                        'INSERT INTO password_resets (phone, otpHash, expiresAt, attempts, createdAt, ipAddress, userAgent) VALUES (?, ?, ?, 0, ?, ?, ?)',
-                        [phone, otpHash, expiresAt, now, ipAddress, userAgent],
-                        function(err) {
-                            if (err) reject(err);
-                            else resolve({ id: this.lastID });
-                        }
-                    );
-                }
-            );
-        });
-    }
-
-    async getPasswordReset(phone) {
-        return new Promise((resolve, reject) => {
-            this.db.get(
-                'SELECT * FROM password_resets WHERE phone = ? AND expiresAt > ?',
-                [phone, Date.now()],
-                (err, row) => {
-                    if (err) reject(err);
-                    else resolve(row);
-                }
-            );
-        });
-    }
-
-    async incrementResetAttempts(id) {
-        return new Promise((resolve, reject) => {
-            this.db.run(
-                'UPDATE password_resets SET attempts = attempts + 1 WHERE id = ?',
-                [id],
-                function(err) {
-                    if (err) reject(err);
-                    else resolve({ changes: this.changes });
-                }
-            );
-        });
-    }
-
-    async deletePasswordReset(id) {
-        return new Promise((resolve, reject) => {
-            this.db.run(
-                'DELETE FROM password_resets WHERE id = ?',
-                [id],
-                function(err) {
-                    if (err) reject(err);
-                    else resolve({ changes: this.changes });
-                }
-            );
-        });
-    }
-
-    async updateUserPassword(email, password, salt) {
-        return new Promise((resolve, reject) => {
-            this.db.run(
-                'UPDATE users SET password = ?, salt = ? WHERE email = ?',
-                [password, salt, email],
-                function(err) {
-                    if (err) reject(err);
-                    else resolve({ changes: this.changes });
-                }
-            );
-        });
-    }
-
-    async logSecurityEvent(event, phone, email, success, ipAddress, userAgent, details) {
-        return new Promise((resolve, reject) => {
-            this.db.run(
-                'INSERT INTO security_audit_log (event, phone, email, success, ipAddress, userAgent, details, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [event, phone, email, success ? 1 : 0, ipAddress, userAgent, details, Date.now()],
-                function(err) {
-                    if (err) reject(err);
-                    else resolve({ id: this.lastID });
                 }
             );
         });
