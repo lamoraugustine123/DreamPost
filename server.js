@@ -664,6 +664,40 @@ app.post('/api/login', authLimiter, async (req, res) => {
     }
 });
 
+// Change password endpoint
+app.post('/api/change-password', authLimiter, async (req, res) => {
+    const { email, currentPassword, newPassword } = req.body;
+
+    if (!email || !currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'Email, current password, and new password are required.' });
+    }
+
+    if (!validatePassword(newPassword)) {
+        return res.status(400).json({ error: 'New password must be between 8 and 128 characters.' });
+    }
+
+    try {
+        const userEmail = email.toLowerCase();
+        const user = await database.getUserByEmail(userEmail);
+
+        if (!user) {
+            return res.status(401).json({ error: 'User not found.' });
+        }
+
+        if (!verifyPassword(currentPassword, user.salt, user.password)) {
+            return res.status(401).json({ error: 'Current password is incorrect.' });
+        }
+
+        const { salt: newSalt, hash: newHash } = hashPassword(newPassword);
+        await database.updateUserPassword(userEmail, newHash, newSalt);
+
+        res.json({ message: 'Password changed successfully.' });
+    } catch (error) {
+        console.error('Change password error:', error);
+        res.status(500).json({ error: 'Failed to change password.' });
+    }
+});
+
 app.get('/api/posts', async (req, res) => {
     try {
         const posts = await getPosts();
