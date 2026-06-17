@@ -394,6 +394,18 @@ const elements = {
     signupPassword: document.getElementById('signupPassword'),
     loginBtn: document.getElementById('loginBtn'),
     signupBtn: document.getElementById('signupBtn'),
+    resetPanel: document.getElementById('resetPanel'),
+    forgotPasswordLink: document.getElementById('forgotPasswordLink'),
+    backToLoginLink: document.getElementById('backToLoginLink'),
+    resetPhone: document.getElementById('resetPhone'),
+    resetRequestBtn: document.getElementById('resetRequestBtn'),
+    resetOtp: document.getElementById('resetOtp'),
+    resetNewPassword: document.getElementById('resetNewPassword'),
+    resetConfirmPassword: document.getElementById('resetConfirmPassword'),
+    resetVerifyBtn: document.getElementById('resetVerifyBtn'),
+    resetStep1: document.getElementById('resetStep1'),
+    resetStep2: document.getElementById('resetStep2'),
+    resetMessage: document.getElementById('resetMessage'),
     logoutBtn: document.getElementById('logoutBtn'),
     userAvatar: document.getElementById('dropdownAvatar'),
     userName: document.getElementById('dropdownUsername'),
@@ -964,6 +976,27 @@ function attachEventListeners() {
         console.log('👤 Signup button clicked');
         handleSignup();
     });
+
+    // Password reset listeners
+    if (elements.forgotPasswordLink) {
+        elements.forgotPasswordLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            switchAuthTab('reset');
+        });
+    }
+    if (elements.backToLoginLink) {
+        elements.backToLoginLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            switchAuthTab('login');
+        });
+    }
+    if (elements.resetRequestBtn) {
+        elements.resetRequestBtn.addEventListener('click', handleResetRequest);
+    }
+    if (elements.resetVerifyBtn) {
+        elements.resetVerifyBtn.addEventListener('click', handleResetVerify);
+    }
+
     if (elements.logoutBtn) {
         console.log('🚪 Adding logout listener');
         elements.logoutBtn.addEventListener('click', () => {
@@ -1382,6 +1415,7 @@ function switchAuthTab(tab) {
     elements.showSignup.classList.toggle('active', tab === 'signup');
     elements.loginPanel.classList.toggle('hidden', tab !== 'login');
     elements.signupPanel.classList.toggle('hidden', tab !== 'signup');
+    elements.resetPanel.classList.toggle('hidden', tab !== 'reset');
 }
 
 async function handleLogin() {
@@ -1447,6 +1481,104 @@ async function handleLogin() {
         // Reset button state
         elements.loginBtn.textContent = 'Log in';
         elements.loginBtn.disabled = false;
+    }
+}
+
+// Password Reset Handlers
+function showResetMessage(msg, isError = false) {
+    elements.resetMessage.textContent = msg;
+    elements.resetMessage.classList.remove('hidden', 'success', 'error');
+    elements.resetMessage.classList.add(isError ? 'error' : 'success');
+}
+
+async function handleResetRequest() {
+    const phone = elements.resetPhone.value.trim();
+    if (!phone) {
+        showResetMessage('Please enter your phone number.', true);
+        return;
+    }
+
+    elements.resetRequestBtn.textContent = 'Sending...';
+    elements.resetRequestBtn.disabled = true;
+
+    try {
+        const response = await fetch(`${API_URL}/password-reset/request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            showResetMessage('Reset code sent! Check your phone.');
+            elements.resetStep1.classList.add('hidden');
+            elements.resetStep2.classList.remove('hidden');
+        } else {
+            showResetMessage(data.error || 'Failed to send reset code.', true);
+        }
+    } catch (error) {
+        showResetMessage('Network error. Please try again.', true);
+    } finally {
+        elements.resetRequestBtn.textContent = 'Send Reset Code';
+        elements.resetRequestBtn.disabled = false;
+    }
+}
+
+async function handleResetVerify() {
+    const phone = elements.resetPhone.value.trim();
+    const otp = elements.resetOtp.value.trim();
+    const newPassword = elements.resetNewPassword.value;
+    const confirmPassword = elements.resetConfirmPassword.value;
+
+    if (!otp || !newPassword || !confirmPassword) {
+        showResetMessage('Please fill in all fields.', true);
+        return;
+    }
+    if (otp.length !== 6) {
+        showResetMessage('OTP must be 6 digits.', true);
+        return;
+    }
+    if (newPassword !== confirmPassword) {
+        showResetMessage('Passwords do not match.', true);
+        return;
+    }
+    if (newPassword.length < 8) {
+        showResetMessage('Password must be at least 8 characters.', true);
+        return;
+    }
+
+    elements.resetVerifyBtn.textContent = 'Resetting...';
+    elements.resetVerifyBtn.disabled = true;
+
+    try {
+        const response = await fetch(`${API_URL}/password-reset/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, otp, newPassword })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            showResetMessage('Password reset successful! You can now log in.');
+            setTimeout(() => {
+                // Reset the form and go back to login
+                elements.resetPhone.value = '';
+                elements.resetOtp.value = '';
+                elements.resetNewPassword.value = '';
+                elements.resetConfirmPassword.value = '';
+                elements.resetStep1.classList.remove('hidden');
+                elements.resetStep2.classList.add('hidden');
+                elements.resetMessage.classList.add('hidden');
+                switchAuthTab('login');
+            }, 2000);
+        } else {
+            showResetMessage(data.error || 'Failed to reset password.', true);
+        }
+    } catch (error) {
+        showResetMessage('Network error. Please try again.', true);
+    } finally {
+        elements.resetVerifyBtn.textContent = 'Reset Password';
+        elements.resetVerifyBtn.disabled = false;
     }
 }
 
