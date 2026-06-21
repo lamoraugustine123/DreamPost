@@ -1980,6 +1980,216 @@ app.get('/api/admin/security/statistics', checkAdminPermission('view_analytics')
     }
 });
 
+// Admin Companion Chat Endpoint with Gemini API and Local Fallback
+app.post('/api/admin/companion/chat', checkAdminPermission('view_analytics'), async (req, res) => {
+    const { message, persona, stats } = req.body;
+    
+    if (!message) {
+        return res.status(400).json({ error: 'Message is required' });
+    }
+
+    const currentPersona = persona || 'Robot';
+    const currentStats = stats || {};
+    const apiKey = process.env.GEMINI_API_KEY || 'AQ.Ab8RN6L1K7tr5-9CBZdnBOVsf10UjKH-MojqpuEut5wa2CRXvQ';
+    
+    // System instruction prompt for Gemini
+    const systemPrompt = `You are a dynamic, embodied AI companion inside the DreamPost Admin Dashboard.
+You are currently embodying the persona: ${currentPersona}.
+- Robot: Speaks in retro-futuristic, mechanical, uppercase or code-like fashion with clicks and whirs. Beeps, glitches, and acts playful. E.g., "SYSTEM SCAN COMPLETE. BEEP!"
+- Scientist: Speaks in an overly analytical, intellectual, verbose, and slightly philosophical way. Loves data, formulas, and hypotheses. E.g., "Telemetry analysis suggests..."
+- Engineer: Speaks in a rugged, practical, builder-centric style. Loves tools, debugging, grease, and hands-on repairs. E.g., "Time to grease the event loops and tighten the index clamps."
+
+Dashboard Current Stats: Users: ${currentStats.totalUsers || 0}, Active: ${currentStats.activeUsers || 0}, Dreams/Posts: ${currentStats.totalPosts || 0}, Signups: ${currentStats.newSignups || 0}.
+
+Respond to the user's message: "${message}".
+Keep your response short and engaging (1 to 2 sentences max). Combine text with expressive motion.
+You must choose one matching animation to trigger:
+- "none" (normal breathing/idle)
+- "jump" (excited/joy)
+- "dance" (highly playful/happy)
+- "run" (chasing/excited)
+- "teleport" (surprise/mysterious/repositioning)
+- "glitch" (robot glitching, scientist eureka moment, engineer tool work)
+
+You MUST respond ONLY with a valid JSON object. Do NOT include markdown styling or backticks. Format:
+{
+  "responseText": "Your in-character response",
+  "emotion": "excited" | "curious" | "calm" | "playful" | "serious",
+  "action": "none" | "jump" | "dance" | "run" | "teleport" | "glitch"
+}`;
+
+    // Call Gemini API using Node's standard https module with a short timeout
+    const callGemini = () => {
+        return new Promise((resolve, reject) => {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+            const data = JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: systemPrompt
+                    }]
+                }]
+            });
+
+            const requestOptions = {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                timeout: 1800 // 1.8 seconds timeout
+            };
+
+            const https = require('https');
+            const req = https.request(url, requestOptions, (apiRes) => {
+                let body = '';
+                apiRes.on('data', (chunk) => body += chunk);
+                apiRes.on('end', () => {
+                    if (apiRes.statusCode === 200) {
+                        try {
+                            const json = JSON.parse(body);
+                            const text = json.candidates[0].content.parts[0].text.trim();
+                            // Attempt to clean JSON in case Gemini wrapped it in markdown code blocks
+                            const cleanText = text.replace(/^```json\s*/, '').replace(/```$/, '').trim();
+                            const result = JSON.parse(cleanText);
+                            resolve(result);
+                        } catch (e) {
+                            reject(new Error('Failed to parse Gemini response: ' + e.message));
+                        }
+                    } else {
+                        reject(new Error(`Gemini API error code: ${apiRes.statusCode}`));
+                    }
+                });
+            });
+
+            req.on('error', (err) => reject(err));
+            req.on('timeout', () => {
+                req.destroy();
+                reject(new Error('Gemini API request timed out'));
+            });
+
+            req.write(data);
+            req.end();
+        });
+    };
+
+    try {
+        const result = await callGemini();
+        return res.json(result);
+    } catch (err) {
+        console.warn('Gemini API call failed, using local rule-based fallback:', err.message);
+        const fallback = getLocalCompanionResponse(message, currentPersona, currentStats);
+        return res.json(fallback);
+    }
+});
+
+function getLocalCompanionResponse(message, persona, stats) {
+    const msg = message.toLowerCase();
+    let responseText = "";
+    let emotion = "calm";
+    let action = "none";
+
+    if (msg.includes("hello") || msg.includes("hi") || msg.includes("hey") || msg.includes("greetings")) {
+        if (persona === "Robot") {
+            responseText = "SYSTEM ONLINE. SALUTATIONS, ADMIN. COMPANION INTERFACE ACTIVE. BEEP-BOOP!";
+            emotion = "excited";
+            action = "jump";
+        } else if (persona === "Scientist") {
+            responseText = "Greetings, Administrator. I am currently monitoring the telemetry matrices. All indicators suggest a nominal state.";
+            emotion = "calm";
+            action = "none";
+        } else {
+            responseText = "Hey there! Ready to get some work done? Let me know if something needs fixing.";
+            emotion = "excited";
+            action = "jump";
+        }
+    } else if (msg.includes("status") || msg.includes("health") || msg.includes("system") || msg.includes("telemetry") || msg.includes("how are you")) {
+        if (persona === "Robot") {
+            responseText = `SYSTEM STATUS: OPTIMAL. ACTIVE USERS: ${stats.activeUsers || 0}. TOTAL USERS: ${stats.totalUsers || 0}. BEEP!`;
+            emotion = "calm";
+            action = "none";
+        } else if (persona === "Scientist") {
+            responseText = `Empirical metrics identify total users at ${stats.totalUsers || 0} and active users at ${stats.activeUsers || 0}. Database telemetry is positive.`;
+            emotion = "serious";
+            action = "none";
+        } else {
+            responseText = `Everything is humming along nicely! We've got ${stats.totalUsers || 0} users total, and the database status is green.`;
+            emotion = "calm";
+            action = "none";
+        }
+    } else if (msg.includes("fix") || msg.includes("repair") || msg.includes("bug") || msg.includes("error") || msg.includes("clean") || msg.includes("diagnose")) {
+        if (persona === "Robot") {
+            responseText = "INITIATING ERROR CORRECTION. FLUSHING TEMP CACHE... [GLITCH SOUND]... SYSTEM COMPILING WITHOUT INTERRUPTS.";
+            emotion = "excited";
+            action = "glitch";
+        } else if (persona === "Scientist") {
+            responseText = "Recalibrating rendering layers. Syntactic validation completes successfully. The anomaly is resolved.";
+            emotion = "serious";
+            action = "none";
+        } else {
+            responseText = "Alright, let's get under the hood! Grabbed my wrench, tightening the grids and oiling the event hooks.";
+            emotion = "excited";
+            action = "dance"; // Triggers repair animation!
+        }
+    } else if (msg.includes("user") || msg.includes("client") || msg.includes("signup")) {
+        if (persona === "Robot") {
+            responseText = `DATABASE INQUIRY RETRIEVED. COHORT OF ${stats.totalUsers || 0} SUBJECTS LOCATED. SEE CLIENTS MATRIX.`;
+            emotion = "curious";
+            action = "run";
+        } else if (persona === "Scientist") {
+            responseText = `Database records register ${stats.totalUsers || 0} user records. A fascinating group of dreamers.`;
+            emotion = "curious";
+            action = "none";
+        } else {
+            responseText = `We have ${stats.totalUsers || 0} users registered on the server. Hit the Clients tab to manage their roles.`;
+            emotion = "calm";
+            action = "none";
+        }
+    } else if (msg.includes("dance") || msg.includes("spin") || msg.includes("play") || msg.includes("fun") || msg.includes("flip")) {
+        if (persona === "Robot") {
+            responseText = "DANCE MODULE ACTIVATED. EXECUTING 360-DEGREE ROTATIONAL ALGORITHM. DZZT!";
+            emotion = "playful";
+            action = "dance";
+        } else if (persona === "Scientist") {
+            responseText = "Engaging kinetic sway. Applying gravity offsets to produce rotational motion.";
+            emotion = "playful";
+            action = "jump";
+        } else {
+            responseText = "Woohoo! Let's shake it off! Hope you like this quick backflip.";
+            emotion = "excited";
+            action = "dance";
+        }
+    } else if (msg.includes("joke") || msg.includes("funny")) {
+        if (persona === "Robot") {
+            responseText = "QUESTION: WHY DID THE INT ROUTE TO THE FLOAT? ANSWER: TO GET TO THE OTHER DECIMAL POINT. HA-HA-HA.";
+            emotion = "playful";
+            action = "glitch";
+        } else if (persona === "Scientist") {
+            responseText = "There are three kinds of people: those who can count, and those who can't.";
+            emotion = "playful";
+            action = "none";
+        } else {
+            responseText = "Why do programmers wear glasses? Because they can't C#! Haha!";
+            emotion = "excited";
+            action = "jump";
+        }
+    } else {
+        if (persona === "Robot") {
+            responseText = "COMMAND UNKNOWN. SYSTEM RUNNING BACKWARD COMPATIBILITY. HOW CAN I ASSIST, ADMIN?";
+            emotion = "curious";
+            action = "glitch";
+        } else if (persona === "Scientist") {
+            responseText = "I observe your input, though its telemetry is non-standard. Pray, elaborate on your thesis.";
+            emotion = "serious";
+            action = "none";
+        } else {
+            responseText = "I'm on it! Let me know if you need to fetch users, inspect database health, or run a diagnostic.";
+            emotion = "calm";
+            action = "none";
+        }
+    }
+
+    return { responseText, emotion, action };
+}
+
 // Cleanup expired resets every hour
 setInterval(async () => {
     await database.cleanupExpiredResets();

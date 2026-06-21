@@ -316,6 +316,12 @@ async function loadOverviewCharts(data) {
     
     // User growth chart
     const userGrowthCtx = document.getElementById('userGrowthChart').getContext('2d');
+    
+    // Create gradient fill
+    const gradPurple = userGrowthCtx.createLinearGradient(0, 0, 0, 300);
+    gradPurple.addColorStop(0, 'rgba(139, 92, 246, 0.35)');
+    gradPurple.addColorStop(1, 'rgba(139, 92, 246, 0.01)');
+
     charts.userGrowth = new Chart(userGrowthCtx, {
         type: 'line',
         data: {
@@ -323,16 +329,44 @@ async function loadOverviewCharts(data) {
             datasets: [{
                 label: 'New Users',
                 data: [12, 19, 15, 22],
-                borderColor: 'rgb(75, 192, 192)',
-                backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                tension: 0.1
+                borderColor: '#8b5cf6',
+                borderWidth: 3,
+                backgroundColor: gradPurple,
+                fill: true,
+                tension: 0.4,
+                pointBackgroundColor: '#8b5cf6',
+                pointBorderColor: 'rgba(255,255,255,0.8)',
+                pointBorderWidth: 1.5,
+                pointRadius: 4,
+                pointHoverRadius: 6
             }]
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             plugins: {
                 legend: {
                     display: false
+                },
+                tooltip: {
+                    backgroundColor: '#121218',
+                    titleColor: '#f8fafc',
+                    bodyColor: '#f8fafc',
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    borderWidth: 1,
+                    padding: 10,
+                    cornerRadius: 8,
+                    displayColors: false
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                    ticks: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 11 } }
+                },
+                y: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                    ticks: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 11 } }
                 }
             }
         }
@@ -348,18 +382,42 @@ async function loadOverviewCharts(data) {
                 label: 'Activities',
                 data: [45, 28, 15, 8],
                 backgroundColor: [
-                    'rgba(79, 70, 229, 0.8)',
-                    'rgba(40, 167, 69, 0.8)',
-                    'rgba(255, 193, 7, 0.8)',
-                    'rgba(54, 162, 235, 0.8)'
-                ]
+                    '#8b5cf6', // Violet
+                    '#10b981', // Emerald
+                    '#f59e0b', // Amber
+                    '#3b82f6'  // Blue
+                ],
+                borderRadius: 6,
+                borderSkipped: false,
+                maxBarThickness: 45
             }]
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             plugins: {
                 legend: {
                     display: false
+                },
+                tooltip: {
+                    backgroundColor: '#121218',
+                    titleColor: '#f8fafc',
+                    bodyColor: '#f8fafc',
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    borderWidth: 1,
+                    padding: 10,
+                    cornerRadius: 8,
+                    displayColors: false
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false, drawBorder: false },
+                    ticks: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 11 } }
+                },
+                y: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                    ticks: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 11 } }
                 }
             }
         }
@@ -600,17 +658,33 @@ function updateAnalyticsCharts(data) {
             datasets: [{
                 data: [1, 2, 5],
                 backgroundColor: [
-                    'rgba(220, 53, 69, 0.8)',
-                    'rgba(40, 167, 69, 0.8)',
-                    'rgba(79, 70, 229, 0.8)'
-                ]
+                    '#ef4444', // Red
+                    '#ec4899', // Pink
+                    '#8b5cf6'  // Purple
+                ],
+                borderWidth: 1.5,
+                borderColor: '#121218'
             }]
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    position: 'bottom'
+                    position: 'bottom',
+                    labels: {
+                        color: '#94a3b8',
+                        font: { family: 'Plus Jakarta Sans', size: 12 }
+                    }
+                },
+                tooltip: {
+                    backgroundColor: '#121218',
+                    titleColor: '#f8fafc',
+                    bodyColor: '#f8fafc',
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    borderWidth: 1,
+                    padding: 10,
+                    cornerRadius: 8
                 }
             }
         }
@@ -618,6 +692,11 @@ function updateAnalyticsCharts(data) {
     
     // Engagement chart
     const engagementCtx = document.getElementById('engagementChart').getContext('2d');
+    
+    const gradCyan = engagementCtx.createLinearGradient(0, 0, 0, 300);
+    gradCyan.addColorStop(0, 'rgba(59, 130, 246, 0.35)');
+    gradCyan.addColorStop(1, 'rgba(59, 130, 246, 0.01)');
+
     charts.engagement = new Chart(engagementCtx, {
         type: 'line',
         data: {
@@ -625,16 +704,44 @@ function updateAnalyticsCharts(data) {
             datasets: [{
                 label: 'Activities',
                 data: [45, 52, 38, 65, 42, 73, 58],
-                borderColor: 'rgb(75, 192, 192)',
-                backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                tension: 0.1
+                borderColor: '#3b82f6',
+                borderWidth: 3,
+                backgroundColor: gradCyan,
+                fill: true,
+                tension: 0.4,
+                pointBackgroundColor: '#3b82f6',
+                pointBorderColor: 'rgba(255,255,255,0.8)',
+                pointBorderWidth: 1.5,
+                pointRadius: 4,
+                pointHoverRadius: 6
             }]
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             plugins: {
                 legend: {
                     display: false
+                },
+                tooltip: {
+                    backgroundColor: '#121218',
+                    titleColor: '#f8fafc',
+                    bodyColor: '#f8fafc',
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    borderWidth: 1,
+                    padding: 10,
+                    cornerRadius: 8,
+                    displayColors: false
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                    ticks: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 11 } }
+                },
+                y: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                    ticks: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 11 } }
                 }
             }
         }

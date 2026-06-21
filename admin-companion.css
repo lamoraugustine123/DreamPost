@@ -1,0 +1,628 @@
+/* DreamPost Admin Companion - Style System */
+
+:root {
+    --robot-primary: #00f2fe;
+    --robot-secondary: #4facfe;
+    --robot-glow: rgba(0, 242, 254, 0.4);
+    
+    --scientist-primary: #a855f7;
+    --scientist-secondary: #22c55e;
+    --scientist-glow: rgba(168, 85, 247, 0.4);
+    
+    --engineer-primary: #f97316;
+    --engineer-secondary: #eab308;
+    --engineer-glow: rgba(249, 115, 22, 0.4);
+}
+
+/* Base Companion Container */
+#admin-companion-widget {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    width: 90px;
+    height: 90px;
+    z-index: 1000;
+    cursor: pointer;
+    transition: transform 0.1s ease, filter 0.3s ease;
+    filter: drop-shadow(0 5px 15px rgba(0,0,0,0.3));
+}
+
+#admin-companion-widget:hover {
+    filter: drop-shadow(0 8px 25px rgba(0,0,0,0.4));
+}
+
+/* Character Body Styling */
+.companion-avatar {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transform-origin: bottom center;
+}
+
+/* Character Graphic SVG */
+.companion-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    overflow: visible;
+}
+
+/* Animation Classes */
+.state-breathe {
+    animation: comp-breathe 3s ease-in-out infinite;
+}
+
+.state-run {
+    animation: comp-run 0.5s linear infinite;
+}
+
+.state-jump {
+    animation: comp-jump 0.8s cubic-bezier(0.25, 1, 0.5, 1) 1;
+}
+
+.state-dance {
+    animation: comp-dance 1.2s ease-in-out infinite;
+}
+
+.state-glitch {
+    animation: comp-glitch 0.6s steps(2) infinite;
+}
+
+.state-teleport-out {
+    animation: comp-teleport-out 0.4s cubic-bezier(0.6, -0.28, 0.735, 0.045) forwards;
+}
+
+.state-teleport-in {
+    animation: comp-teleport-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* Dialogue Bubble */
+.companion-bubble {
+    position: absolute;
+    bottom: 110px;
+    right: 0;
+    width: 250px;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    border-radius: 18px 18px 0 18px;
+    padding: 12px 16px;
+    color: #1e293b;
+    font-size: 0.85rem;
+    font-weight: 500;
+    opacity: 0;
+    transform: scale(0.8) translateY(15px);
+    transform-origin: bottom right;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none;
+    z-index: 1001;
+    line-height: 1.4;
+}
+
+.companion-bubble.show {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+}
+
+.companion-bubble::after {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    right: 20px;
+    border-width: 8px 8px 0 0;
+    border-style: solid;
+    border-color: rgba(255, 255, 255, 0.85) transparent transparent transparent;
+}
+
+/* Sound/Mute Toggle Indicator */
+.companion-sound-toggle {
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    width: 26px;
+    height: 26px;
+    background: rgba(15, 23, 42, 0.7);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    transition: all 0.3s ease;
+    opacity: 0;
+    transform: scale(0.6);
+}
+
+#admin-companion-widget:hover .companion-sound-toggle {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.companion-sound-toggle:hover {
+    background: rgba(15, 23, 42, 0.9);
+    transform: scale(1.1) !important;
+}
+
+/* XP level mini progress bar */
+.companion-xp-mini {
+    position: absolute;
+    bottom: -15px;
+    left: 5px;
+    width: 80px;
+    height: 6px;
+    background: rgba(15, 23, 42, 0.6);
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.1);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+#admin-companion-widget:hover .companion-xp-mini {
+    opacity: 1;
+}
+
+.companion-xp-mini-fill {
+    height: 100%;
+    width: 0%;
+    transition: width 0.4s ease;
+}
+
+/* Level Up Pop Badge */
+.level-badge-pop {
+    position: absolute;
+    top: -30px;
+    left: 15px;
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    color: white;
+    font-weight: 800;
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(245,158,11,0.4);
+    pointer-events: none;
+    z-index: 1002;
+    animation: level-pop-animation 1.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+/* Particle effect container */
+.companion-particle {
+    position: fixed;
+    pointer-events: none;
+    border-radius: 50%;
+    z-index: 999;
+    animation: particle-fly 1s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+/* Wrench overlay / Blueprint canvas */
+.blueprint-grid-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-image: 
+        linear-gradient(rgba(99, 102, 241, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99, 102, 241, 0.05) 1px, transparent 1px);
+    background-size: 30px 30px;
+    pointer-events: none;
+    z-index: 998;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+
+.blueprint-grid-overlay.show {
+    opacity: 1;
+}
+
+/* Chat Panel */
+.companion-chat-panel {
+    position: fixed;
+    top: 0;
+    right: -420px;
+    width: 400px;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(25px) saturate(180%);
+    border-left: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: -10px 0 40px rgba(0, 0, 0, 0.15);
+    z-index: 1050;
+    display: flex;
+    flex-direction: column;
+    transition: right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.companion-chat-panel.open {
+    right: 0;
+}
+
+.companion-chat-header {
+    padding: 20px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.companion-chat-header h3 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.companion-close-chat {
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    cursor: pointer;
+    color: #64748b;
+    transition: color 0.2s ease;
+}
+
+.companion-close-chat:hover {
+    color: #0f172a;
+}
+
+/* Persona selection controls */
+.persona-selector-row {
+    padding: 10px 20px;
+    background: rgba(241, 245, 249, 0.5);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    display: flex;
+    gap: 8px;
+}
+
+.persona-pill {
+    flex: 1;
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid #cbd5e1;
+    background: white;
+    color: #64748b;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+.persona-pill:hover {
+    background: #f8fafc;
+    color: #0f172a;
+}
+
+.persona-pill.active[data-persona="Robot"] {
+    background: var(--robot-primary);
+    border-color: var(--robot-primary);
+    color: #0f172a;
+    box-shadow: 0 4px 10px var(--robot-glow);
+}
+
+.persona-pill.active[data-persona="Scientist"] {
+    background: var(--scientist-primary);
+    border-color: var(--scientist-primary);
+    color: white;
+    box-shadow: 0 4px 10px var(--scientist-glow);
+}
+
+.persona-pill.active[data-persona="Engineer"] {
+    background: var(--engineer-primary);
+    border-color: var(--engineer-primary);
+    color: white;
+    box-shadow: 0 4px 10px var(--engineer-glow);
+}
+
+/* Chat Messages Area */
+.companion-chat-messages {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.chat-msg {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 16px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    animation: fadeInMsg 0.3s ease forwards;
+}
+
+.chat-msg.user {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 4px;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+}
+
+.chat-msg.companion {
+    background: white;
+    color: #1e293b;
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.chat-msg.companion.persona-Robot {
+    border-left: 4px solid var(--robot-primary);
+}
+
+.chat-msg.companion.persona-Scientist {
+    border-left: 4px solid var(--scientist-primary);
+}
+
+.chat-msg.companion.persona-Engineer {
+    border-left: 4px solid var(--engineer-primary);
+}
+
+.typing-indicator {
+    display: flex;
+    gap: 4px;
+    padding: 8px 12px;
+}
+
+.typing-dot {
+    width: 6px;
+    height: 6px;
+    background: #94a3b8;
+    border-radius: 50%;
+    animation: typing-bounce 1.4s infinite ease-in-out both;
+}
+
+.typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+/* Chat Input Area */
+.companion-chat-footer {
+    padding: 15px 20px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    background: rgba(255,255,255,0.9);
+}
+
+/* XP Progression Bar inside footer */
+.companion-xp-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+}
+
+.companion-xp-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #475569;
+    margin-bottom: 5px;
+}
+
+.companion-xp-bar {
+    width: 100%;
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.companion-xp-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%);
+    width: 0%;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Input Form */
+.companion-input-form {
+    display: flex;
+    gap: 8px;
+}
+
+.companion-chat-input {
+    flex: 1;
+    padding: 10px 14px;
+    border-radius: 20px;
+    border: 1px solid #cbd5e1;
+    outline: none;
+    font-size: 0.85rem;
+    background: white;
+    transition: border-color 0.2s ease;
+}
+
+.companion-chat-input:focus {
+    border-color: #6366f1;
+}
+
+.companion-send-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(99,102,241,0.3);
+    transition: all 0.2s ease;
+}
+
+.companion-send-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 14px rgba(99,102,241,0.4);
+}
+
+.companion-send-btn:active {
+    transform: scale(0.95);
+}
+
+/* === KEYFRAME ANIMATIONS === */
+
+@keyframes comp-breathe {
+    0%, 100% {
+        transform: translateY(0) scaleY(1);
+    }
+    50% {
+        transform: translateY(-5px) scaleY(0.96) scaleX(1.02);
+    }
+}
+
+@keyframes comp-run {
+    0%, 100% {
+        transform: translateY(0) rotate(5deg) scaleY(0.95);
+    }
+    50% {
+        transform: translateY(-8px) rotate(-5deg) scaleY(1.05);
+    }
+}
+
+@keyframes comp-jump {
+    0% {
+        transform: translateY(0) scaleY(0.85);
+    }
+    30% {
+        transform: translateY(-40px) scaleY(1.15) scaleX(0.9);
+    }
+    50% {
+        transform: translateY(-50px) scaleY(1);
+    }
+    70% {
+        transform: translateY(-20px) scaleY(0.95);
+    }
+    90% {
+        transform: translateY(0) scaleY(0.9);
+    }
+    100% {
+        transform: translateY(0) scaleY(1);
+    }
+}
+
+@keyframes comp-dance {
+    0%, 100% {
+        transform: translateY(0) rotate(0deg) scaleX(1);
+    }
+    25% {
+        transform: translateY(-10px) rotate(15deg) scaleX(0.95);
+    }
+    50% {
+        transform: translateY(0) rotate(0deg) scaleX(1.05);
+    }
+    75% {
+        transform: translateY(-10px) rotate(-15deg) scaleX(0.95);
+    }
+}
+
+@keyframes comp-glitch {
+    0%, 100% {
+        transform: translate(0) skew(0deg);
+        filter: hue-rotate(0deg);
+    }
+    20% {
+        transform: translate(-3px, 2px) skew(4deg);
+        filter: hue-rotate(90deg);
+    }
+    40% {
+        transform: translate(3px, -2px) skew(-4deg);
+        filter: hue-rotate(180deg);
+    }
+    60% {
+        transform: translate(-2px, -3px) skew(2deg);
+        filter: hue-rotate(270deg);
+    }
+    80% {
+        transform: translate(2px, 3px) skew(-2deg);
+        filter: hue-rotate(45deg);
+    }
+}
+
+@keyframes comp-teleport-out {
+    0% {
+        transform: scale(1);
+        filter: blur(0) brightness(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(0.3) scaleY(3);
+        filter: blur(5px) brightness(3);
+        opacity: 0.8;
+    }
+    100% {
+        transform: scale(0);
+        filter: blur(15px) brightness(5);
+        opacity: 0;
+    }
+}
+
+@keyframes comp-teleport-in {
+    0% {
+        transform: scale(0);
+        filter: blur(15px) brightness(5);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.2) scaleY(0.5);
+        filter: blur(5px) brightness(2);
+        opacity: 0.8;
+    }
+    100% {
+        transform: scale(1);
+        filter: blur(0) brightness(1);
+        opacity: 1;
+    }
+}
+
+@keyframes level-pop-animation {
+    0% {
+        transform: translateY(0) scale(0.6);
+        opacity: 0;
+    }
+    20% {
+        transform: translateY(-20px) scale(1.2);
+        opacity: 1;
+    }
+    80% {
+        transform: translateY(-25px) scale(1);
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(-40px) scale(0.8);
+        opacity: 0;
+    }
+}
+
+@keyframes particle-fly {
+    0% {
+        transform: translate(0, 0) scale(1);
+        opacity: 1;
+    }
+    100% {
+        transform: translate(var(--dx), var(--dy)) scale(0);
+        opacity: 0;
+    }
+}
+
+@keyframes typing-bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+}
+
+@keyframes fadeInMsg {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
